@@ -1,0 +1,34 @@
+{
+  "name": "Embedded Rust Development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "USER_UID": "1000",
+      "USER_GID": "1000",
+      "USERNAME": "${localEnv:USER}"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer"
+      ],
+      "settings": {
+        "rust-analyzer.checkOnSave.allTargets": false,
+        "rust-analyzer.cargo.target": "thumbv7em-none-eabihf",
+        "rust-analyzer.check.allTargets": false
+      }
+    }
+  },
+  "forwardPorts": [],
+  "postCreateCommand": "bash .devcontainer/setup-scripts/setup-debugger.sh && bash .devcontainer/setup-scripts/setup-git.sh",
+  "remoteUser": "${localEnv:USER}",
+  "mounts": [
+    "source=/dev/bus/usb,target=/dev/bus/usb,type=bind"
+  ],
+  "runArgs": [
+    "--privileged",
+    "--env-file",
+    "${localWorkspaceFolder}/.devcontainer/.env"
+  ]
+}
