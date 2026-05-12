@@ -10,6 +10,28 @@ Ozonide is a Rust-based flight controller stack targeting STM32H7-class MCUs.  T
 **Board:** WeAct STM32H743 STM32H743VIT6  
 **MCU:** STM32H743VIT6 (Cortex-M7 @ 480MHz, 2MB Flash, 1MB RAM)
 
+## Peripherals
+
+┌─────────────────────────────────────┐
+│   STM32H743 Chip                    │
+│                                     │
+│  ┌───────────────────────────────┐ │
+│  │ ARM Cortex-M7 Core            │ │
+│  │  - SYST (SysTick)             │ │
+│  │  - NVIC                       │ │  ← cortex_m::Peripherals
+│  │  - SCB                        │ │
+│  │  - FPU, MPU, etc.             │ │
+│  └───────────────────────────────┘ │
+│                                     │
+│  STM32-Specific Peripherals:       │
+│  - GPIO (A-K)                      │
+│  - Timers (1-17)                   │  ← pac::Peripherals
+│  - UART, SPI, I2C                  │
+│  - USB, Ethernet                   │
+│  - ADC, DAC                        │
+│  - PWR, RCC (power/clocks)         │
+└─────────────────────────────────────┘
+
 ## Memory Architecture
 
 The STM32H7 features a multi-domain memory architecture optimized for high-performance embedded applications. Memory regions are mapped to specific use cases:

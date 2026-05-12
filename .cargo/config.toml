@@ -2,7 +2,7 @@
 target = "thumbv7em-none-eabihf"
 
 [target.thumbv7em-none-eabihf]
-runner = "probe-rs run --chip STM32H743VITx --protocol swd --speed 100 --no-location"
+runner = "probe-rs run --chip STM32H743VITx"
 rustflags = [
   "-C", "linker=flip-link",
   "-C", "link-arg=-Tlink.x",
@@ -20,3 +20,6 @@ opt-level = "s"
 debug = true
 lto = true
 codegen-units = 1
+
+[env]
+DEFMT_LOG = "trace"
