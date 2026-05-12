@@ -11,7 +11,8 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "rust-lang.rust-analyzer"
+        "rust-lang.rust-analyzer",
+        "ZixuanWang.linkerscript"
       ],
       "settings": {
         "rust-analyzer.checkOnSave.allTargets": false,

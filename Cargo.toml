@@ -1,0 +1,16 @@
+[package]
+name = "ozonide"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cortex-m = "0.7.7"
+cortex-m-rt = "0.7.5"
+defmt = "1.1.0"
+defmt-rtt = "1.2.0"
+embedded-hal = "1.0.0"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+stm32h7xx-hal = { version = "0.16", features = ["stm32h743v", "rt"] }
+
+[dev-dependencies]
+# unit tests or integration test frameworks

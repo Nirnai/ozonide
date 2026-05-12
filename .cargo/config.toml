@@ -1,0 +1,22 @@
+[build]
+target = "thumbv7em-none-eabihf"
+
+[target.thumbv7em-none-eabihf]
+runner = "probe-rs run --chip STM32H743VITx --protocol swd --speed 100 --no-location"
+rustflags = [
+  "-C", "linker=flip-link",
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+]
+
+# Enable optimization in dev builds for smaller binaries
+[profile.dev]
+opt-level = 0
+debug = true
+lto = false
+
+[profile.release]
+opt-level = "s"
+debug = true
+lto = true
+codegen-units = 1
