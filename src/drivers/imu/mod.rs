@@ -1,27 +1,25 @@
 pub mod icm42688p;
+pub use icm42688p::Icm42688p;
 
 use crate::config::SensorConfig;
 use crate::types::ImuData;
+use embedded_hal::blocking::spi::{Transfer, Write};
+use embedded_hal::digital::v2::OutputPin;
 
 
-pub trait Imu {
-    fn read(&mut self) -> ImuData;
-}
-
-
-pub enum AnyImu<SPI, CS> {
+pub enum Imu<SPI, CS> {
     Icm42688p(icm42688p::Icm42688p<SPI, CS>),
 }
 
-impl<SPI, CS, SpiE, PinE> Imu for AnyImu<SPI, CS>
+
+impl<SPI, CS, SpiE, PinE> Imu<SPI, CS>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8, Error = SpiE>
-        + embedded_hal::blocking::spi::Write<u8, Error = SpiE>,
-    CS: embedded_hal::digital::v2::OutputPin<Error = PinE>,
+    SPI: Transfer<u8, Error = SpiE> + Write<u8, Error = SpiE>,
+    CS: OutputPin<Error = PinE>,
 {
-    fn read(&mut self) -> ImuData {
+    pub fn read(&mut self) -> ImuData {
         match self {
-            Self::Icm42688p(d) => d.read(),
+            Self::Icm42688p(driver) => driver.read(),
         }
     }
 }
@@ -30,25 +28,24 @@ pub fn create_imu<SPI, CS, SpiE, PinE>(
     config: &SensorConfig,
     spi: SPI,
     cs: CS,
-) -> Result<AnyImu<SPI, CS>, &'static str>
+) -> Result<Imu<SPI, CS>, &'static str>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8, Error = SpiE>
-        + embedded_hal::blocking::spi::Write<u8, Error = SpiE>,
-    CS: embedded_hal::digital::v2::OutputPin<Error = PinE>,
+    SPI: Transfer<u8, Error = SpiE> + Write<u8, Error = SpiE>,
+    CS: OutputPin<Error = PinE>,
 {
     match config.name {
         "icm42688p" => {
             let imu_config = icm42688p::Config {
-                gyro_range: icm42688p::GyroRange::from_str(config.param("gyro_range")),
-                accel_range: icm42688p::AccelRange::from_str(config.param("accel_range")),
                 sample_rate: icm42688p::SampleRate::from_str(config.param("sample_rate")),
-                accel_power_mode: icm42688p::AccelPowerMode::from_str(
+                gyroscope_range: icm42688p::GyroscopeRange::from_str(config.param("gyro_range")),
+                accelerometer_range: icm42688p::AccelerometerRange::from_str(config.param("accel_range")),
+                accelerometer_power_mode: icm42688p::AccelerometerPowerMode::from_str(
                     config.param("accel_power_mode"),
                 ),
             };
             let mut imu = icm42688p::Icm42688p::new(spi, cs, imu_config);
             imu.init();
-            Ok(AnyImu::Icm42688p(imu))
+            Ok(Imu::Icm42688p(imu))
         }
         unknown => {
             defmt::error!("Unknown IMU driver: {}", unknown);

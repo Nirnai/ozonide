@@ -62,13 +62,6 @@ impl BoardInterface for Stm32h743vit6 {
             .pll1_strategy(stm32h7xx_hal::rcc::PllConfigStrategy::Iterative)
             .pll1_q_ck(100.MHz())
             .freeze(power_configuration, &device_peripherals.SYSCFG);
-        defmt::info!("Clock configuration complete:");
-        defmt::info!("  System Clock (SYSCLK): {} MHz", clock_configuration.clocks.sys_ck().raw() / 1_000_000);
-        defmt::info!("  AHB Clock (HCLK):      {} MHz", clock_configuration.clocks.hclk().raw() / 1_000_000);
-        defmt::info!("  APB1 Clock:            {} MHz", clock_configuration.clocks.pclk1().raw() / 1_000_000);
-        defmt::info!("  APB2 Clock:            {} MHz", clock_configuration.clocks.pclk2().raw() / 1_000_000);
-        defmt::info!("  APB3 Clock:            {} MHz", clock_configuration.clocks.pclk3().raw() / 1_000_000);
-        defmt::info!("  APB4 Clock:            {} MHz", clock_configuration.clocks.pclk4().raw() / 1_000_000);
 
         // Configure SPI1 (PA5=SCK, PA6=MISO, PA7=MOSI)
         let gpioa = device_peripherals.GPIOA.split(clock_configuration.peripheral.GPIOA);

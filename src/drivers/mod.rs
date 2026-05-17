@@ -12,3 +12,5 @@ pub mod camera;
 pub mod esc;
 // pub mod lcd;
 // pub mod storage;
+
+pub use imu::{Imu, create_imu};
