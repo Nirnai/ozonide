@@ -72,3 +72,17 @@ static mut ESC_STATE: [u16; 4] = [0; 4];
 #[link_section = ".persistent"]
 static mut IMU_CALIBRATION: CalibData = CalibData::default();
 ```
+
+## IMU
+
+ICM42688 Module    →    STM32H743VIT6
+─────────────────────────────────────
+VDD                →    3.3V
+GND                →    GND  
+VDDIO (if separate)→    3.3V
+SCK                →    PA5 (SPI1_SCK)
+MOSI (SDI)         →    PA7 (SPI1_MOSI)
+MISO (SDO)         →    PA6 (SPI1_MISO)
+CS (nCS)           →    PA4 (GPIO)
+INT1 (optional)    →    PB0 (GPIO/EXTI)
+INT2 (optional)    →    PB1 (GPIO/EXTI)

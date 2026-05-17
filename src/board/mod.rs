@@ -1,20 +1,12 @@
-//! Board Support Package (BSP)
-//!
-//! Board-specific initialization and pin mappings for WeAct STM32H743.
+mod stm32h743vit6;
 
-// TODO: Will contain board initialization
-// pub struct Board {
-//     pub imu: ImuWrapper,
-//     pub camera: CameraWrapper,
-//     pub escs: EscController,
-//     pub systick: SysTick,
-// }
+pub use stm32h743vit6::Stm32h743vit6;
 
-// impl Board {
-//     pub fn init() -> Self {
-//         // Initialize all peripherals
-//         // Configure clocks
-//         // Set up pin mappings
-//         todo!()
-//     }
-// }
+pub trait Board {
+    type CorePeripherals;
+    type DevicePeripherals;
+
+    fn init() -> Self;
+    fn core_peripherals(&self) -> &Self::CorePeripherals;
+    fn device_peripherals(&self) -> &Self::DevicePeripherals;
+}
