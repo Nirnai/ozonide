@@ -1,56 +1,58 @@
-// //! Inertial Measurement Unit (IMU) drivers
-// //!
-// //! Provides a common interface for 6-DOF IMU sensors.
-// //! Implementations should support at least 100Hz sampling rate.
+pub mod icm42688p;
 
-// use crate::types::{ImuData, Vec3};
+use crate::config::SensorConfig;
+use crate::types::ImuData;
 
-// /// Common interface for IMU sensors
-// pub trait Imu {
-//     type Error;
 
-//     /// Read accelerometer data in m/s²
-//     fn read_accel(&mut self) -> Result<Vec3, Self::Error>;
+pub trait Imu {
+    fn read(&mut self) -> ImuData;
+}
 
-//     /// Read gyroscope data in rad/s
-//     fn read_gyro(&mut self) -> Result<Vec3, Self::Error>;
 
-//     /// Read both accel and gyro in one operation (more efficient)
-//     fn read(&mut self) -> Result<ImuData, Self::Error>;
+pub enum AnyImu<SPI, CS> {
+    Icm42688p(icm42688p::Icm42688p<SPI, CS>),
+}
 
-//     /// Configure sensor ranges and sample rate
-//     fn configure(&mut self, config: &ImuConfig) -> Result<(), Self::Error>;
+impl<SPI, CS, SpiE, PinE> Imu for AnyImu<SPI, CS>
+where
+    SPI: embedded_hal::blocking::spi::Transfer<u8, Error = SpiE>
+        + embedded_hal::blocking::spi::Write<u8, Error = SpiE>,
+    CS: embedded_hal::digital::v2::OutputPin<Error = PinE>,
+{
+    fn read(&mut self) -> ImuData {
+        match self {
+            Self::Icm42688p(d) => d.read(),
+        }
+    }
+}
 
-//     /// Check if new data is available
-//     fn data_ready(&mut self) -> Result<bool, Self::Error>;
-// }
-
-// /// IMU configuration parameters
-// #[derive(Debug, Clone, Copy)]
-// pub struct ImuConfig {
-//     pub accel_range: AccelRange,
-//     pub gyro_range: GyroRange,
-//     pub sample_rate_hz: u16,
-//     pub low_pass_filter: bool,
-// }
-
-// #[derive(Debug, Clone, Copy)]
-// pub enum AccelRange {
-//     G2,   // ±2g
-//     G4,   // ±4g
-//     G8,   // ±8g
-//     G16,  // ±16g
-// }
-
-// #[derive(Debug, Clone, Copy)]
-// pub enum GyroRange {
-//     Dps250,   // ±250 degrees/sec
-//     Dps500,   // ±500 degrees/sec
-//     Dps1000,  // ±1000 degrees/sec
-//     Dps2000,  // ±2000 degrees/sec
-// }
-
-// // TODO: Implement for specific IMU chips
-// // mod mpu6050;
-// // mod icm20689;
-// // mod bmi088;
+pub fn create_imu<SPI, CS, SpiE, PinE>(
+    config: &SensorConfig,
+    spi: SPI,
+    cs: CS,
+) -> Result<AnyImu<SPI, CS>, &'static str>
+where
+    SPI: embedded_hal::blocking::spi::Transfer<u8, Error = SpiE>
+        + embedded_hal::blocking::spi::Write<u8, Error = SpiE>,
+    CS: embedded_hal::digital::v2::OutputPin<Error = PinE>,
+{
+    match config.name {
+        "icm42688p" => {
+            let imu_config = icm42688p::Config {
+                gyro_range: icm42688p::GyroRange::from_str(config.param("gyro_range")),
+                accel_range: icm42688p::AccelRange::from_str(config.param("accel_range")),
+                sample_rate: icm42688p::SampleRate::from_str(config.param("sample_rate")),
+                accel_power_mode: icm42688p::AccelPowerMode::from_str(
+                    config.param("accel_power_mode"),
+                ),
+            };
+            let mut imu = icm42688p::Icm42688p::new(spi, cs, imu_config);
+            imu.init();
+            Ok(AnyImu::Icm42688p(imu))
+        }
+        unknown => {
+            defmt::error!("Unknown IMU driver: {}", unknown);
+            Err("Unknown IMU driver")
+        }
+    }
+}

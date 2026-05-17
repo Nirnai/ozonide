@@ -1,0 +1,14 @@
+[board]
+name = "stm32h743vit6"
+
+[sensors.imu]
+name = "icm42688p"
+interface = "SPI1"
+gyro_range = "2000_dps"
+accel_range = "16_g"
+sample_rate = "32000_hz"
+accel_power_mode = "low_noise"
+
+[sensors.imu.pins]
+cs = "PA4"
+int1 = "PB0"
