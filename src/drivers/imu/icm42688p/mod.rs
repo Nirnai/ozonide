@@ -16,27 +16,26 @@ pub use registers::*;
 
 // Imports for internal use
 use crate::types::{ImuData, Vector3};
+use crate::board;
 use embedded_hal::blocking::spi::{Transfer, Write};
 use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::digital::v2::InputPin;
 
-#[link_section = ".sensor_buffers"]
-static mut ACCEL_DMA_BUFFER: [u8; 6] = [0; 6];
-#[link_section = ".sensor_buffers"]
-static mut GYRO_DMA_BUFFER: [u8; 6] = [0; 6];
-
-pub struct Icm42688p<SPI, CS> {
+pub struct Icm42688p<SPI, CS, INT> {
     spi: SPI,
     cs: CS,
+    _int: INT,
     config: Config,
 }
 
-impl<SPI, CS, SpiError, PinError> Icm42688p<SPI, CS>
+impl<SPI, CS, INT, SpiError, PinError> Icm42688p<SPI, CS, INT>
 where
     SPI: Transfer<u8, Error = SpiError> + Write<u8, Error = SpiError>,
     CS: OutputPin<Error = PinError>,
+    INT: InputPin<Error = PinError>,
 {
-    pub fn new(spi: SPI, cs: CS, config: Config) -> Self {
-        Self { spi, cs, config }
+    pub fn new(spi: SPI, cs: CS, int: INT, config: Config) -> Self {
+        Self { spi, cs, _int: int, config }
     }
 
     pub fn init(&mut self) {
@@ -48,7 +47,7 @@ where
 
         // Soft reset
         self.write_register(DEVICE_CONFIG, 0x01);
-        cortex_m::asm::delay(480_000); // ~1ms at 480MHz
+        cortex_m::asm::delay(board::SYSTEM_FREQUENCY_HZ / 1000); // ~1ms
 
         // Validate: if ODR > 500Hz, accel must be in Low Noise mode
         if self.config.sample_rate.requires_low_noise() {
@@ -71,15 +70,26 @@ where
             (self.config.accelerometer_range.fs_sel() << 5) | self.config.sample_rate.odr(),
         );
         // Wait 200µs before writing PWR_MGMT0
-        cortex_m::asm::delay(96_000);
+        cortex_m::asm::delay(board::SYSTEM_FREQUENCY_HZ / 1000 / 5); // 200µs
         // PWR_MGMT0: GYRO_MODE [3:2] = LN (0b11), ACCEL_MODE [1:0] from config
         let pwr = (0b11 << 2) | self.config.accelerometer_power_mode.accel_mode();
         self.write_register(PWR_MGMT0, pwr);
 
         // Wait for gyro startup (30ms typical per datasheet)
-        cortex_m::asm::delay(480_000 * 30);
+        cortex_m::asm::delay(board::SYSTEM_FREQUENCY_HZ / 1000 * 30);
 
-        defmt::info!("ICM42688P initialized");
+        // Configure interrupts
+        // INT_CONFIG: INT1 active high, push-pull, pulsed (50us pulse)
+        self.write_register(INT_CONFIG, 0b00000010); // bit 2:1 = INT1 mode (active high), bit 0 = polarity
+        let int_config1 = self.read_register(INT_CONFIG);
+        defmt::info!("INT_CONFIG1: 0x{:02x}", int_config1);
+        
+        // INT_CONFIG0: Use default timing (50us pulse width)
+        // Register defaults are fine for pulsed mode
+        
+        // INT_SOURCE0: Route UI Data Ready to INT1
+        self.write_register(INT_SOURCE0, UI_DRDY_INT1_EN);
+        defmt::info!("ICM42688P initialized with INT1 data ready");
     }
 
     pub fn read(&mut self) -> ImuData {

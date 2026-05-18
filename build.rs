@@ -13,9 +13,9 @@ fn main() {
         .expect("Failed to parse config TOML");
 
     // Emit feature flag from config
-    let board_name = config["board"]["name"]
+    let board_name = config["board"]["_name"]
         .as_str()
-        .expect("Missing board.name in config");
+        .expect("Missing board._name in config");
     println!("cargo:rustc-cfg=feature=\"board-{}\"", board_name);
 
     // Generate config

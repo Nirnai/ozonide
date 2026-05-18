@@ -149,12 +149,12 @@ impl SampleRate {
             Self::_4000_hz => 0x04,
             Self::_2000_hz => 0x05,
             Self::_1000_hz => 0x06,
-            Self::_200_hz => 0x07,
-            Self::_100_hz => 0x08,
-            Self::_50_hz => 0x09,
-            Self::_25_hz => 0x0A,
-            Self::_12_5_hz => 0x0B,
-            Self::_500_hz => 0x0F,
+            Self::_500_hz => 0x07,
+            Self::_200_hz => 0x08,
+            Self::_100_hz => 0x09,
+            Self::_50_hz => 0x0A,
+            Self::_25_hz => 0x0B,
+            Self::_12_5_hz => 0x0C,
         }
     }
 

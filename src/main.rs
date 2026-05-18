@@ -11,17 +11,33 @@ mod vehicle;
 mod config;
 
 // Needed to call read
-use crate::drivers::imu::Imu;
+// use crate::drivers::imu::Imu;
 
 use cortex_m_rt::entry;
 use defmt_rtt as _;
 use panic_probe as _;
 
+pub static mut VEHICLE: Option<vehicle::Vehicle> = None;
+
 #[entry]
 fn main() -> ! {
     defmt::info!("Ozonide flight controller starting...");
 
-    let mut vehicle = vehicle::Vehicle::from_config();
+    // Intialize system time
+    let mut core_peripherals = cortex_m::Peripherals::take().unwrap();
+    core_peripherals.DCB.enable_trace();
+    core_peripherals.DWT.enable_cycle_counter();
+
+    let vehicle = vehicle::Vehicle::from_config();
+    let t1 = crate::utils::get_time_us();
+    cortex_m::asm::delay(board::SYSTEM_FREQUENCY_HZ / 1000); // 1ms delay @ CPU_FREQUENCY_HZ
+    let t2 = crate::utils::get_time_us();
+    defmt::info!("Time delta: {} us", t2 - t1); // Should print ~1000
+
+    // Move entire vehicle to static
+    unsafe {
+        VEHICLE = Some(vehicle);
+    }
 
 
     // TODO: Initialize tasks
@@ -30,19 +46,20 @@ fn main() -> ! {
 
     loop {
 
-        if let Some(imu) = &mut vehicle.imu {
-            let data: types::ImuData = imu.read();
-            defmt::info!("accel: ({}, {}, {})",
-                data.linear_acceleration.x,
-                data.linear_acceleration.y,
-                data.linear_acceleration.z);
-        }
+        // if let Some(imu) = &mut vehicle.imu {
+        //     let data: types::ImuData = imu.read();
+        //     defmt::info!("accel: ({}, {}, {})",
+        //         data.linear_acceleration.x,
+        //         data.linear_acceleration.y,
+        //         data.linear_acceleration.z);
+        // }
         // TODO: Main loop
         // 1. Read sensors
         // 2. Update state estimate
         // 3. Compute control
         // 4. Output to ESCs
 
-        cortex_m::asm::nop(); // Prevent optimization removing the loop
+        cortex_m::asm::wfi(); // Prevent optimization removing the loop
     }
 }
+

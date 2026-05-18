@@ -1,17 +1,14 @@
-//! Utility functions and helpers
-//!
-//! Common utilities for timing, math, data structures, etc.
+use crate::board;
 
-// pub mod timing;
-// pub mod math;
-// pub mod buffers;
 
-// /// Simple delay helper (will be replaced with proper timing later)
-// pub fn delay_ms(_ms: u32) {
-//     todo!("Implement delay using timer peripheral")
-// }
-
-// /// Get system time in microseconds
-// pub fn get_time_us() -> u64 {
-//     todo!("Read from hardware timer")
-// }
+/// Get current time in microseconds
+/// Wraps every ~8.9 seconds at 480MHz (fine for relative timing)
+#[inline(always)]
+pub fn get_time_us() -> u64 {
+    const CPU_FREQ_MHZ: u32 = board::CPU_FREQUENCY_HZ / 1_000_000;
+    
+    unsafe {
+        let cyccnt = (*cortex_m::peripheral::DWT::PTR).cyccnt.read();
+        (cyccnt as u64) / (CPU_FREQ_MHZ as u64)
+    }
+}
