@@ -5,10 +5,10 @@ mod board;
 mod drivers;
 mod algorithms;
 mod tasks;
-mod types;
 mod utils;
 mod vehicle;
 mod config;
+mod messaging;
 
 use cortex_m_rt::entry;
 use defmt_rtt as _;

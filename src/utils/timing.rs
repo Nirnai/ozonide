@@ -89,7 +89,7 @@ impl SystemTime {
     }
 
     #[inline(always)]
-    pub fn elapsed(since: u32) -> u32 {
+    pub fn _elapsed(since: u32) -> u32 {
         Self::now().wrapping_sub(since)
     }
 }

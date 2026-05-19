@@ -2,7 +2,7 @@ pub mod icm42688p;
 // pub use icm42688p::Icm42688p;
 
 use crate::config::SensorConfig;
-use crate::types::ImuData;
+use crate::messaging::ImuSample;
 use embedded_hal::blocking::spi::{Transfer, Write};
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::digital::v2::InputPin;
@@ -19,13 +19,8 @@ where
     CS: OutputPin<Error = PinE>,
     INT: InputPin<Error = PinE>,
 {
-    pub fn read_int_status(&mut self) -> u8 {
-        match self {
-            Self::Icm42688p(driver) => driver.read_int_status(),
-        }
-    }
 
-    pub fn read(&mut self) -> ImuData {
+    pub fn read(&mut self) -> ImuSample {
         match self {
             Self::Icm42688p(driver) => driver.read(),
         }

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
 defmt = "1.1.0"

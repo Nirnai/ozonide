@@ -15,7 +15,7 @@ pub use registers::*;
 
 
 // Imports for internal use
-use crate::types::{ImuData, Vector3};
+use crate::messaging::ImuSample;
 use embedded_hal::blocking::spi::{Transfer, Write};
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::digital::v2::InputPin;
@@ -91,33 +91,41 @@ where
         defmt::info!("ICM42688P initialized with INT1 data ready");
     }
 
-    pub fn read_int_status(&mut self) -> u8 {
-        self.read_register(INT_STATUS)
-    }
+    pub fn read(&mut self) -> ImuSample {
+        let timestamp_us = crate::utils::SystemTime::now() as u64;
 
-    pub fn read(&mut self) -> ImuData {
-        let mut accel_buf = [0u8; 6];
-        let mut gyro_buf = [0u8; 6];
+        // Single 14-byte burst: IMU_DAT_1(0x1D)..GYRO_DATA_Z0(0x2A)
+        // Layout: [temp_hi, temp_lo, ax_hi, ax_lo, ay_hi, ay_lo, az_hi, az_lo,
+        //          gx_hi, gx_lo, gy_hi, gy_lo, gz_hi, gz_lo]
+        let mut buf = [0u8; 14];
+        self.read_registers(IMU_DATA_1, &mut buf);
 
-        self.read_registers(ACCEL_DATA_X1, &mut accel_buf);
-        self.read_registers(GYRO_DATA_X1, &mut gyro_buf);
+        let accel_sens = self.config.accelerometer_range.sensitivity();
+        let gyro_sens  = self.config.gyroscope_range.sensitivity();
 
-        let accel_scale = 1.0 / self.config.accelerometer_range.sensitivity();
-        let gyro_scale = 1.0 / self.config.gyroscope_range.sensitivity();
+        // Temp formula from datasheet §4.13: T_°C = raw / 132.48 + 25
+        let temp_raw = i16::from_be_bytes([buf[0], buf[1]]);
+        let temperature = (temp_raw as f32 / 132.48) + 25.0;
 
-        return ImuData {
-                timestamp_us: 0, // TODO: wire up a timer
-                linear_acceleration: Vector3 {
-                    x: (i16::from_be_bytes([accel_buf[0], accel_buf[1]]) as f32) * accel_scale,
-                    y: (i16::from_be_bytes([accel_buf[2], accel_buf[3]]) as f32) * accel_scale,
-                    z: (i16::from_be_bytes([accel_buf[4], accel_buf[5]]) as f32) * accel_scale,
-                },
-                angular_velocity: Vector3 {
-                    x: (i16::from_be_bytes([gyro_buf[0], gyro_buf[1]]) as f32) * gyro_scale,
-                    y: (i16::from_be_bytes([gyro_buf[2], gyro_buf[3]]) as f32) * gyro_scale,
-                    z: (i16::from_be_bytes([gyro_buf[4], gyro_buf[5]]) as f32) * gyro_scale,
-                },
-        };
+        // Accel: raw LSB → g (÷ sensitivity) → m/s² (× 9.80665)
+        let a_scale = 9.80665 / accel_sens;
+        // Gyro: raw LSB → °/s (÷ sensitivity) → rad/s (× π/180)
+        let g_scale = (core::f32::consts::PI / 180.0) / gyro_sens;
+
+        ImuSample {
+            timestamp_us,
+            linear_acceleration: [
+                i16::from_be_bytes([buf[2],  buf[3]])  as f32 * a_scale,
+                i16::from_be_bytes([buf[4],  buf[5]])  as f32 * a_scale,
+                i16::from_be_bytes([buf[6],  buf[7]])  as f32 * a_scale,
+            ],
+            angular_velocity: [
+                i16::from_be_bytes([buf[8],  buf[9]])  as f32 * g_scale,
+                i16::from_be_bytes([buf[10], buf[11]]) as f32 * g_scale,
+                i16::from_be_bytes([buf[12], buf[13]]) as f32 * g_scale,
+            ],
+            temperature,
+        }
     }
 
     fn read_register(&mut self, reg: u8) -> u8 {

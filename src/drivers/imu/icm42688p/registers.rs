@@ -23,11 +23,8 @@ pub const ACCEL_CONFIG0: u8 = 0x50;
 // Data Registers
 // ============================================================================
 
-/// Accelerometer X-axis high byte (start of 6-byte accel data)
-pub const ACCEL_DATA_X1: u8 = 0x1F;
-
-/// Gyroscope X-axis high byte (start of 6-byte gyro data)
-pub const GYRO_DATA_X1: u8 = 0x25;
+/// Temperature high byte (start of 14-byte burst: 2 temp + 6 accel + 6 gyro)
+pub const IMU_DATA_1: u8 = 0x1D;
 
 // ============================================================================
 // Power Management
@@ -40,15 +37,8 @@ pub const PWR_MGMT0: u8 = 0x4E;
 // Interrupt Configuration
 // ============================================================================
 
-/// Interrupt status register
-pub const INT_STATUS: u8 = 0x2D;
-pub const UI_DRDY_INT_STATUS: u8 = 1 << 3;
-
 /// Interrupt pin configuration (polarity, drive mode, latch/pulse)
 pub const INT_CONFIG: u8 = 0x14;
-
-/// Interrupt timing configuration 0 (controls when INT status bits are cleared)
-pub const INT_CONFIG0: u8 = 0x63;
 
 /// Interrupt configuration 1 (INT_ASYNC_RESET must be cleared after reset)
 pub const INT_CONFIG1: u8 = 0x64;

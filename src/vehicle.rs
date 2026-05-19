@@ -44,10 +44,8 @@ impl Vehicle {
 
     pub fn read_imu() {
         Self::with_imu(|imu| {
-            let timestamp_us = SystemTime::now();
-            let mut data = imu.read();
-            data.timestamp_us = timestamp_us as u64;
-            defmt::info!("Timestamp: {}", data.timestamp_us);
+            let data = imu.read();
+            defmt::info!("ImuSample: {:?}", data);
         });
     }
 
