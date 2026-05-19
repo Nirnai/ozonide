@@ -16,7 +16,6 @@ pub use registers::*;
 
 // Imports for internal use
 use crate::types::{ImuData, Vector3};
-use crate::board;
 use embedded_hal::blocking::spi::{Transfer, Write};
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::digital::v2::InputPin;
@@ -45,9 +44,9 @@ where
             panic!("ICM42688p initialization failed");
         }
 
-        // Soft reset
+        // Soft reset — 1ms minimum before writing registers (datasheet §9.17)
         self.write_register(DEVICE_CONFIG, 0x01);
-        cortex_m::asm::delay(board::SYSTEM_FREQUENCY_HZ / 1000); // ~1ms
+        crate::utils::SystemTime::delay(1_000);
 
         // Validate: if ODR > 500Hz, accel must be in Low Noise mode
         if self.config.sample_rate.requires_low_noise() {
@@ -70,26 +69,30 @@ where
             (self.config.accelerometer_range.fs_sel() << 5) | self.config.sample_rate.odr(),
         );
         // Wait 200µs before writing PWR_MGMT0
-        cortex_m::asm::delay(board::SYSTEM_FREQUENCY_HZ / 1000 / 5); // 200µs
+        crate::utils::SystemTime::delay(200);
         // PWR_MGMT0: GYRO_MODE [3:2] = LN (0b11), ACCEL_MODE [1:0] from config
         let pwr = (0b11 << 2) | self.config.accelerometer_power_mode.accel_mode();
         self.write_register(PWR_MGMT0, pwr);
 
         // Wait for gyro startup (30ms typical per datasheet)
-        cortex_m::asm::delay(board::SYSTEM_FREQUENCY_HZ / 1000 * 30);
+        crate::utils::SystemTime::delay(30_000);
 
         // Configure interrupts
-        // INT_CONFIG: INT1 active high, push-pull, pulsed (50us pulse)
-        self.write_register(INT_CONFIG, 0b00000010); // bit 2:1 = INT1 mode (active high), bit 0 = polarity
-        let int_config1 = self.read_register(INT_CONFIG);
-        defmt::info!("INT_CONFIG1: 0x{:02x}", int_config1);
-        
-        // INT_CONFIG0: Use default timing (50us pulse width)
-        // Register defaults are fine for pulsed mode
-        
+        // INT_CONFIG1: Clear INT_ASYNC_RESET (bit 4). Datasheet requires this after every
+        // power-on or soft reset — leaving it at the default of 1 causes improper INT pin behavior.
+        self.write_register(INT_CONFIG1, 0b00000000);
+        // INT_CONFIG: INT1 active high, push-pull, pulsed
+        // bit2=0 → pulsed mode: INT1 pulses HIGH briefly (~15 µs at 1 kHz, scope-verified).
+        // bit1=1 → push-pull drive. bit0=1 → active high.
+        self.write_register(INT_CONFIG, 0b00000011); // bit2=pulsed, bit1=push-pull, bit0=active-high
+
         // INT_SOURCE0: Route UI Data Ready to INT1
         self.write_register(INT_SOURCE0, UI_DRDY_INT1_EN);
         defmt::info!("ICM42688P initialized with INT1 data ready");
+    }
+
+    pub fn read_int_status(&mut self) -> u8 {
+        self.read_register(INT_STATUS)
     }
 
     pub fn read(&mut self) -> ImuData {

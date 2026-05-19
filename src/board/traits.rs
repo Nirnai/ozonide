@@ -17,4 +17,5 @@ pub trait BoardInterface {
     fn take_spi(&mut self, name: &str) -> Result<Self::SpiInterface, BoardError>;
     fn take_output_pin(&mut self, name: &str) -> Result<Self::OutputPin, BoardError>;
     fn take_interrupt_pin(&mut self, name: &str) -> Result<Self::InterruptPin, BoardError>;
+    fn clear_exti_flag<const N: u8>();
 }

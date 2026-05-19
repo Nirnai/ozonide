@@ -1,11 +1,9 @@
 use crate::board::traits::*;
 use crate::config;
-use crate::utils;
 
 use stm32h7xx_hal::{interrupt, pac, prelude::*};
 use stm32h7xx_hal::spi::{Spi, Enabled};
 use stm32h7xx_hal::gpio::{ErasedPin, Input, Output, PushPull, ExtiPin};
-use core::ptr::addr_of_mut;
 
 pub const SYSTEM_FREQUENCY_HZ: u32 = 480_000_000;
 pub const CPU_FREQUENCY_HZ: u32 = 240_000_000;
@@ -50,15 +48,15 @@ impl BoardInterface for Stm32h743vit6 {
             (
                 gpioa.pa5.into_alternate(),
                 gpioa.pa6.into_alternate(),
-                gpioa.pa7.into_alternate(), 
+                gpioa.pa7.into_alternate(),
             ),
             stm32h7xx_hal::spi::MODE_0,
-            spi_clock, 
-            clock_configuration.peripheral.SPI1,    
+            spi_clock,
+            clock_configuration.peripheral.SPI1,
             &clock_configuration.clocks,
         );
 
-        // Chip Select pin for SPI1 (PA4) 
+        // Chip Select pin for SPI1 (PA4)
         let pa4 = gpioa.pa4.into_push_pull_output().erase();
         // Interrupt pin (PB0)
         let gpiob = device_peripherals.GPIOB.split(clock_configuration.peripheral.GPIOB);
@@ -106,31 +104,15 @@ impl BoardInterface for Stm32h743vit6 {
             _ => Err(BoardError::PeripheralNotFound),
         }
     }
-}
 
+    #[inline(always)]
+    fn clear_exti_flag<const N: u8>() {
+        unsafe { (*pac::EXTI::ptr()).cpupr1.write(|w| w.bits(1 << N)); }
+    }
+}
 
 #[interrupt]
 fn EXTI0() {
-    // Reset Interrupt Flag
-    unsafe { (*pac::EXTI::ptr()).cpupr1.write(|w| w.bits(1 << 0)); }
-    // Read IMU data
-    unsafe {
-        let vehicle_ptr = addr_of_mut!(crate::VEHICLE);
-        if let Some(vehicle) = (*vehicle_ptr).as_mut() {
-            if let Some(imu) = &mut vehicle._imu {
-                let timestamp_us = utils::get_time_us();
-                let mut data = imu.read();
-                data.timestamp_us = timestamp_us;
-                defmt::info!("IMU interrupt: timestamp={} us, accel=({}, {}, {}), gyro=({}, {}, {})",
-                    data.timestamp_us,
-                    data.linear_acceleration.x,
-                    data.linear_acceleration.y,
-                    data.linear_acceleration.z,
-                    data.angular_velocity.x,
-                    data.angular_velocity.y,
-                    data.angular_velocity.z);
-            }
-        }
-    }
-    // TODO: Publish to topic
+    Stm32h743vit6::clear_exti_flag::<0>();
+    crate::vehicle::Vehicle::read_imu();
 }

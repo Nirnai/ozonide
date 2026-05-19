@@ -40,17 +40,18 @@ pub const PWR_MGMT0: u8 = 0x4E;
 // Interrupt Configuration
 // ============================================================================
 
-// /// Interrupt status register (read to check which interrupt fired)
-// pub const INT_STATUS: u8 = 0x2D;
+/// Interrupt status register
+pub const INT_STATUS: u8 = 0x2D;
+pub const UI_DRDY_INT_STATUS: u8 = 1 << 3;
 
 /// Interrupt pin configuration (polarity, drive mode, latch/pulse)
 pub const INT_CONFIG: u8 = 0x14;
 
-// /// Interrupt timing configuration 0
-// pub const INT_CONFIG0: u8 = 0x63;
+/// Interrupt timing configuration 0 (controls when INT status bits are cleared)
+pub const INT_CONFIG0: u8 = 0x63;
 
-// /// Interrupt timing configuration 1
-// pub const INT_CONFIG1: u8 = 0x64;
+/// Interrupt configuration 1 (INT_ASYNC_RESET must be cleared after reset)
+pub const INT_CONFIG1: u8 = 0x64;
 
 /// Interrupt source routing to INT1 pin
 pub const INT_SOURCE0: u8 = 0x65;

@@ -19,6 +19,12 @@ where
     CS: OutputPin<Error = PinE>,
     INT: InputPin<Error = PinE>,
 {
+    pub fn read_int_status(&mut self) -> u8 {
+        match self {
+            Self::Icm42688p(driver) => driver.read_int_status(),
+        }
+    }
+
     pub fn read(&mut self) -> ImuData {
         match self {
             Self::Icm42688p(driver) => driver.read(),
