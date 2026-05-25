@@ -22,4 +22,4 @@ lto = true
 codegen-units = 1
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "trace,embassy_stm32=info,embassy_executor=info,embassy_time=info"

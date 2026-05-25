@@ -12,25 +12,28 @@ Ozonide is a Rust-based flight controller stack targeting STM32H7-class MCUs.  T
 
 ## Peripherals
 
-┌─────────────────────────────────────┐
-│   STM32H743 Chip                    │
-│                                     │
-│  ┌───────────────────────────────┐ │
-│  │ ARM Cortex-M7 Core            │ │
-│  │  - SYST (SysTick)             │ │
-│  │  - NVIC                       │ │  ← cortex_m::Peripherals
-│  │  - SCB                        │ │
-│  │  - FPU, MPU, etc.             │ │
-│  └───────────────────────────────┘ │
-│                                     │
-│  STM32-Specific Peripherals:       │
-│  - GPIO (A-K)                      │
-│  - Timers (1-17)                   │  ← pac::Peripherals
-│  - UART, SPI, I2C                  │
-│  - USB, Ethernet                   │
-│  - ADC, DAC                        │
-│  - PWR, RCC (power/clocks)         │
-└─────────────────────────────────────┘
+```
+┌──────────────────────────────────────────────────────────┐
+│   STM32H743 Chip                                         │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ ARM Cortex-M7 Core                                 │  │
+│  │  - SYST (SysTick)  ← managed by Embassy internally │  │
+│  │  - NVIC            ← managed by Embassy internally │  │
+│  │  - SCB                                             │  │
+│  │  - DWT (cycle counter)                             │  │
+│  │  - FPU, MPU                                        │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  STM32-Specific Peripherals:  ← embassy_stm32::init()   │
+│  - GPIO (A-K)                                            │
+│  - Timers (1-17)                                         │
+│  - UART, SPI, I2C                                        │
+│  - USB, Ethernet                                         │
+│  - ADC, DAC                                              │
+│  - PWR, RCC (power/clocks)                               │
+└──────────────────────────────────────────────────────────┘
+```
 
 ## Memory Architecture
 
@@ -72,6 +75,25 @@ static mut ESC_STATE: [u16; 4] = [0; 4];
 #[link_section = ".persistent"]
 static mut IMU_CALIBRATION: CalibData = CalibData::default();
 ```
+
+## Timers
+
+| Timer | Type | Bits | Channels | Bus | Assignment |
+|-------|------|------|----------|-----|------------|
+| **TIM1** | Advanced | 16 | 4 + complementary + break | APB2 | ESC motor outputs |
+| **TIM2** | General-purpose | 32 | 4 | APB1 | Reserve — encoder / RC input |
+| **TIM3** | General-purpose | 16 | 4 | APB1 | Camera gimbal servos |
+| **TIM4** | General-purpose | 16 | 4 | APB1 | Free |
+| **TIM5** | General-purpose | 32 | 4 | APB1 | Embassy time driver |
+| **TIM6** | Basic | 16 | — | APB1 | Free (DAC trigger if needed) |
+| **TIM7** | Basic | 16 | — | APB1 | Free (DAC trigger if needed) |
+| **TIM8** | Advanced | 16 | 4 + complementary + break | APB2 | Reserve — 8-motor / octocopter |
+| **TIM12** | General-purpose | 16 | 2 | APB1 | Free |
+| **TIM13** | General-purpose | 16 | 1 | APB1 | Buzzer / LED PWM |
+| **TIM14** | General-purpose | 16 | 1 | APB1 | Free |
+| **TIM15** | General-purpose | 16 | 2 (CH1 complementary) | APB2 | Free |
+| **TIM16** | General-purpose | 16 | 1 + complementary | APB2 | Free |
+| **TIM17** | General-purpose | 16 | 1 + complementary | APB2 | Free |
 
 ## IMU
 

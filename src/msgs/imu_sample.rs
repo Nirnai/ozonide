@@ -8,12 +8,3 @@ pub struct ImuSample {
     pub angular_velocity: [f32; 3],   // rad/s, body frame
     pub temperature: f32,  // °C, for bias compensation
 }
-
-// impl ImuSample {
-//     pub const ZERO: Self = Self {
-//         timestamp_us: 0,
-//         linear_acceleration: [0.0; 3],
-//         angular_velocity: [0.0; 3],
-//         temperature: 0.0,
-//     };
-// }
