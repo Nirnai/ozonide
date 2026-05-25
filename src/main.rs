@@ -33,7 +33,7 @@ fn main() -> ! {
         sample_rate: drivers::imu::icm42688p::SampleRate::_1000_hz,
         gyroscope_range: drivers::imu::icm42688p::GyroscopeRange::_2000_dps,
         accelerometer_range: drivers::imu::icm42688p::AccelerometerRange::_16_g,
-        accelerometer_power_mode: drivers::imu::icm42688p::AccelerometerPowerMode::LowNoise,
+        accelerometer_power_mode: drivers::imu::icm42688p::AccelerometerPowerMode::_LowNoise,
     };
 
     let imu = IMU.init(Icm42688p::new(

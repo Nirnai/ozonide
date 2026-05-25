@@ -43,7 +43,7 @@ impl<SPI: SpiDevice, DRDY: Wait> Icm42688p<SPI, DRDY> {
         Timer::after_micros(1_000).await;
 
         if self.config.sample_rate.requires_low_noise() {
-            if let AccelerometerPowerMode::LowPower = self.config.accelerometer_power_mode {
+            if let AccelerometerPowerMode::_LowPower = self.config.accelerometer_power_mode {
                 defmt::error!("ODR > 500Hz requires Low Noise mode for accelerometer");
                 panic!("Invalid config: LP mode not supported at this ODR");
             }

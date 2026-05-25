@@ -41,8 +41,8 @@ pub enum AccelerometerRange {
 
 #[derive(Clone, Copy)]
 pub enum AccelerometerPowerMode {
-    LowNoise,
-    LowPower,
+    _LowNoise,
+    _LowPower,
 }
 
 pub struct Config {
@@ -58,16 +58,6 @@ pub struct Config {
 // ============================================================================
 
 impl GyroscopeRange {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "250_dps" => Self::_250_dps,
-            "500_dps" => Self::_500_dps,
-            "1000_dps" => Self::_1000_dps,
-            "2000_dps" => Self::_2000_dps,
-            _ => panic!("Invalid gyro range: {}", s),
-        }
-    }
-
     /// LSB/°/s from datasheet Table 1
     pub(super) fn sensitivity(&self) -> f32 {
         match self {
@@ -90,16 +80,6 @@ impl GyroscopeRange {
 }
 
 impl AccelerometerRange {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "2_g" => Self::_2_g,
-            "4_g" => Self::_4_g,
-            "8_g" => Self::_8_g,
-            "16_g" => Self::_16_g,
-            _ => panic!("Invalid accel range: {}", s),
-        }
-    }
-
     /// LSB/g from datasheet Table 2
     pub(super) fn sensitivity(&self) -> f32 {
         match self {
@@ -122,24 +102,6 @@ impl AccelerometerRange {
 }
 
 impl SampleRate {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "12.5_hz" => Self::_12_5_hz,
-            "25_hz" => Self::_25_hz,
-            "50_hz" => Self::_50_hz,
-            "100_hz" => Self::_100_hz,
-            "200_hz" => Self::_200_hz,
-            "500_hz" => Self::_500_hz,
-            "1000_hz" => Self::_1000_hz,
-            "2000_hz" => Self::_2000_hz,
-            "4000_hz" => Self::_4000_hz,
-            "8000_hz" => Self::_8000_hz,
-            "16000_hz" => Self::_16000_hz,
-            "32000_hz" => Self::_32000_hz,
-            _ => panic!("Invalid sample rate: {}", s),
-        }
-    }
-
     /// Bits [3:0] of GYRO_CONFIG0 / ACCEL_CONFIG0
     pub(super) fn odr(&self) -> u8 {
         match self {
@@ -168,19 +130,11 @@ impl SampleRate {
 }
 
 impl AccelerometerPowerMode {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "low_noise" => Self::LowNoise,
-            "low_power" => Self::LowPower,
-            _ => panic!("Invalid accel power mode: {}", s),
-        }
-    }
-
     /// Bits [1:0] of PWR_MGMT0
     pub(super) fn accel_mode(&self) -> u8 {
         match self {
-            Self::LowNoise => 0b11,
-            Self::LowPower => 0b10,
+            Self::_LowNoise => 0b11,
+            Self::_LowPower => 0b10,
         }
     }
 }
