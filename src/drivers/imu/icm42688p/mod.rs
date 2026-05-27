@@ -2,7 +2,7 @@ mod config;
 mod registers;
 
 pub use config::{
-    AccelerometerPowerMode, Config, SampleRate, GyroscopeRange, AccelerometerRange
+    AccelerometerPowerMode, Config
 };
 pub use registers::*;
 

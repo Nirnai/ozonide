@@ -19,7 +19,7 @@ fn main() -> ! {
     let urgent_tasks = executors::high_priority_executor();
     urgent_tasks.spawn(tasks::imu_task(board.imu).unwrap());
 
-    executors::low_priority_executor(|_spawner| {
-        // future tasks (state estimation, control loop, comms) spawned here
+    executors::low_priority_executor(|spawner| {
+        spawner.spawn(tasks::imu_rate_monitor().unwrap());
     });
 }
