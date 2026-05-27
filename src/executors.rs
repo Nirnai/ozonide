@@ -10,12 +10,12 @@ unsafe fn TIM7() {
     HIGH_PRIORITY_EXECUTOR.on_interrupt()
 }
 
-pub fn start_urgent_executor() -> SendSpawner {
+pub fn high_priority_executor() -> SendSpawner {
     interrupt::TIM7.set_priority(Priority::P6);
     return HIGH_PRIORITY_EXECUTOR.start(interrupt::TIM7)
 }
 
-pub fn run_remaining_tasks<F: FnOnce(Spawner)>(f: F) -> ! {
+pub fn low_priority_executor<F: FnOnce(Spawner)>(f: F) -> ! {
     let executor = LOW_PRIORITY_EXECUTOR.init(Executor::new());
     executor.run(f)
 }

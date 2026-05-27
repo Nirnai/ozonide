@@ -19,6 +19,7 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
     "defmt"
 ] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 
 embedded-hal       = "1.0"
 embedded-hal-async = "1.0"

@@ -49,7 +49,18 @@ pub struct Config {
     pub sample_rate: SampleRate,
     pub gyroscope_range: GyroscopeRange,
     pub accelerometer_range: AccelerometerRange,
-    pub accelerometer_power_mode: AccelerometerPowerMode,   
+    pub accelerometer_power_mode: AccelerometerPowerMode,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            sample_rate: SampleRate::_1000_hz,
+            gyroscope_range: GyroscopeRange::_2000_dps,
+            accelerometer_range: AccelerometerRange::_16_g,
+            accelerometer_power_mode: AccelerometerPowerMode::_LowNoise,
+        }
+    }
 }
 
 

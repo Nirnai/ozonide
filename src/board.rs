@@ -4,15 +4,23 @@ use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::rcc::{Pll, PllDiv};
 use embassy_stm32::spi::Spi;
 use embassy_stm32::{bind_interrupts, exti, interrupt, spi, Config};
+use embassy_time::Delay;
+use embedded_hal_bus::spi::ExclusiveDevice;
+use static_cell::StaticCell;
+
+use crate::drivers::imu::icm42688p::{Config as ImuConfig, Icm42688p};
 
 bind_interrupts!(struct Irqs {
     EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
 });
 
+type ImuSpi = ExclusiveDevice<Spi<'static, Blocking, spi::mode::Master>, Output<'static>, Delay>;
+type ImuDrdy = ExtiInput<'static, Async>;
+
+static IMU_DRIVER: StaticCell<Icm42688p<ImuSpi, ImuDrdy>> = StaticCell::new();
+
 pub struct Board {
-    pub imu_spi: Spi<'static, Blocking, spi::mode::Master>,
-    pub imu_chip_select: Output<'static>,
-    pub imu_data_ready: ExtiInput<'static, Async>,
+    pub imu: &'static mut Icm42688p<ImuSpi, ImuDrdy>,
 }
 
 impl Board {
@@ -20,14 +28,15 @@ impl Board {
         let p = embassy_stm32::init(Self::clock_config());
         let mut spi_config = spi::Config::default();
         spi_config.frequency = embassy_stm32::time::mhz(20);
+        let imu_spi = Spi::new_blocking(p.SPI1, p.PA5, p.PA7, p.PA6, spi_config);
+        let imu_cs = Output::new(p.PA4, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+        let imu_drdy = ExtiInput::new(p.PB0, p.EXTI0, embassy_stm32::gpio::Pull::Down, Irqs);
         Self {
-            imu_spi: Spi::new_blocking(p.SPI1, p.PA5, p.PA7, p.PA6, spi_config),
-            imu_chip_select: Output::new(
-                p.PA4,
-                embassy_stm32::gpio::Level::High,
-                embassy_stm32::gpio::Speed::High,
-            ),
-            imu_data_ready: ExtiInput::new(p.PB0, p.EXTI0, embassy_stm32::gpio::Pull::Down, Irqs),
+            imu: IMU_DRIVER.init(Icm42688p::new(
+                ExclusiveDevice::new(imu_spi, imu_cs, Delay).unwrap(),
+                imu_drdy,
+                ImuConfig::default(),
+            )),
         }
     }
 
