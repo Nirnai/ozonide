@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ozonide SITL</title>
+
+  <!-- Browser pulls Three.js from CDN — no npm, no build step. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three":          "https://esm.sh/three@0.167.0",
+      "three/addons/":  "https://esm.sh/three@0.167.0/addons/"
+    }
+  }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #0d1117; }
+
+    #hud {
+      position: fixed; top: 16px; left: 16px;
+      color: #79c0ff;
+      font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.9;
+      background: rgba(13, 17, 23, 0.80);
+      padding: 10px 14px; border-radius: 6px; border: 1px solid #30363d;
+      pointer-events: none; min-width: 230px;
+    }
+    .label { color: #8b949e; }
+    .value { color: #e6edf3; }
+
+    #status {
+      position: fixed; top: 16px; right: 16px;
+      font-family: 'Courier New', monospace; font-size: 12px;
+      padding: 4px 10px; border-radius: 4px; pointer-events: none;
+    }
+    #status.connected    { background:#1a4731; color:#3fb950; border:1px solid #238636; }
+    #status.disconnected { background:#3d1c1c; color:#f85149; border:1px solid #6e1c1c; }
+  </style>
+</head>
+<body>
+  <div id="hud">Connecting…</div>
+  <div id="status" class="disconnected">● Disconnected</div>
+
+  <script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------------------------------------------------------------------------
+// WebSocket
+// ---------------------------------------------------------------------------
+
+let latest = null;
+const hudEl  = document.getElementById('hud');
+const statEl = document.getElementById('status');
+
+function connect() {
+  // Connect to the same host that served this page.
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    statEl.textContent = '● Connected';
+    statEl.className = 'connected';
+  };
+
+  ws.onmessage = ev => { latest = JSON.parse(ev.data); };
+
+  ws.onclose = () => {
+    statEl.textContent = '● Disconnected';
+    statEl.className = 'disconnected';
+    hudEl.innerHTML = 'Connecting…';
+    setTimeout(connect, 1000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+// ---------------------------------------------------------------------------
+// Three.js scene
+// ---------------------------------------------------------------------------
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+scene.fog = new THREE.FogExp2(0x0d1117, 0.018);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 300);
+camera.position.set(4, 3, -6);
+camera.lookAt(0, 1, 0);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 0.5;
+controls.maxDistance = 80;
+
+scene.add(new THREE.AmbientLight(0xd0e8ff, 0.5));
+
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
+sun.position.set(8, 14, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near  = 0.5;
+sun.shadow.camera.far   = 80;
+sun.shadow.camera.left  = sun.shadow.camera.bottom = -20;
+sun.shadow.camera.right = sun.shadow.camera.top    =  20;
+scene.add(sun);
+
+// Ground
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 80),
+  new THREE.MeshLambertMaterial({ color: 0x161b22 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+scene.add(new THREE.GridHelper(80, 80, 0x21262d, 0x21262d));
+
+// Axis helper at origin: red=East(+X), green=Up(+Y), blue=−North(+Z in Three.js)
+scene.add(new THREE.AxesHelper(1.5));
+
+// ---------------------------------------------------------------------------
+// Drone mesh
+// ---------------------------------------------------------------------------
+
+function createDrone() {
+  const g = new THREE.Group();
+
+  // Body
+  g.add(Object.assign(
+    new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.045, 0.18),
+      new THREE.MeshLambertMaterial({ color: 0x1f6feb })
+    ),
+    { castShadow: true }
+  ));
+
+  // Red front marker — body +X = East when unrotated
+  const front = new THREE.Mesh(
+    new THREE.BoxGeometry(0.04, 0.046, 0.04),
+    new THREE.MeshLambertMaterial({ color: 0xf85149 })
+  );
+  front.position.set(0.09, 0, 0);
+  g.add(front);
+
+  // Motor positions in Three.js local space.
+  // Body [+a, -a, 0] → Three.js [+a, 0, +a]  (FR)
+  // Body [-a, +a, 0] → Three.js [-a, 0, -a]  (RL)
+  // Body [+a, +a, 0] → Three.js [+a, 0, -a]  (FL)
+  // Body [-a, -a, 0] → Three.js [-a, 0, +a]  (RR)
+  const a = 0.15 * Math.SQRT2 * 0.5; // ≈ 0.106 m
+  const motors = [
+    { pos: [ a, 0,  a], light: true  },  // FR – CCW
+    { pos: [-a, 0, -a], light: true  },  // RL – CCW
+    { pos: [ a, 0, -a], light: false },  // FL – CW
+    { pos: [-a, 0,  a], light: false },  // RR – CW
+  ];
+
+  const armMat = new THREE.MeshLambertMaterial({ color: 0x30363d });
+
+  for (const { pos: [mx, my, mz], light } of motors) {
+    // Arm
+    const armLen = Math.hypot(mx, mz) * 2;
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.015, 0.025), armMat);
+    arm.position.set(mx / 2, 0, mz / 2);
+    arm.rotation.y = -Math.atan2(mz, mx);
+    arm.castShadow = true;
+    g.add(arm);
+
+    // Motor can
+    const can = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.022, 0.022, 0.028, 12),
+      new THREE.MeshLambertMaterial({ color: 0x484f58 })
+    );
+    can.position.set(mx, my + 0.025, mz);
+    can.castShadow = true;
+    g.add(can);
+
+    // Propeller disc (light = CCW, dark = CW)
+    const prop = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.065, 0.065, 0.004, 20),
+      new THREE.MeshLambertMaterial({
+        color: light ? 0xd2a679 : 0x222233,
+        transparent: true, opacity: 0.75,
+      })
+    );
+    prop.position.set(mx, my + 0.04, mz);
+    g.add(prop);
+  }
+
+  return g;
+}
+
+const drone = createDrone();
+scene.add(drone);
+
+// Velocity arrow
+const velArrow = new THREE.ArrowHelper(
+  new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 0, 0x39d353, 0.15, 0.08
+);
+scene.add(velArrow);
+
+// ---------------------------------------------------------------------------
+// Coordinate frame conversion
+//
+// Simulator: ENU (X=East, Y=North, Z=Up)
+// Three.js:  Y-up right-hand (X=East, Y=Up, Z=−North)
+//
+// position:   three = [enu.x,  enu.z, −enu.y]
+// quaternion: vector part transforms identically to position vectors
+//             THREE.Quaternion(qx, qz, −qy, qw)
+// ---------------------------------------------------------------------------
+
+function enuPos([x, y, z]) {
+  return new THREE.Vector3(x, z, -y);
+}
+
+function enuQuat([qw, qx, qy, qz]) {
+  return new THREE.Quaternion(qx, qz, -qy, qw);
+}
+
+// ---------------------------------------------------------------------------
+// HUD
+// ---------------------------------------------------------------------------
+
+function updateHud(s) {
+  const t   = (s.sim_time_us / 1e6).toFixed(1);
+  const [ex, ey, ez] = s.position.map(v => v.toFixed(2));
+  const [vx, vy, vz] = s.velocity;
+  const spd = Math.hypot(vx, vy, vz).toFixed(2);
+  hudEl.innerHTML = `\
+<span class="label">time  </span><span class="value">${t} s</span>
+<span class="label">alt   </span><span class="value">${ez} m</span>
+<span class="label">pos   </span><span class="value">E${ex} N${ey}</span>
+<span class="label">speed </span><span class="value">${spd} m/s</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// Render loop
+// ---------------------------------------------------------------------------
+
+const targetPos  = new THREE.Vector3();
+const targetQuat = new THREE.Quaternion();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (latest) {
+    targetPos.copy(enuPos(latest.position));
+    targetQuat.copy(enuQuat(latest.quaternion));
+
+    // Lerp/slerp to absorb the 60 Hz stepping
+    drone.position.lerp(targetPos, 0.25);
+    drone.quaternion.slerp(targetQuat, 0.25);
+
+    // Velocity arrow
+    const vel = enuPos(latest.velocity);
+    const spd = vel.length();
+    if (spd > 0.05) {
+      velArrow.setDirection(vel.clone().normalize());
+      velArrow.setLength(Math.min(spd * 0.3, 2), 0.15, 0.08);
+      velArrow.visible = true;
+    } else {
+      velArrow.visible = false;
+    }
+    velArrow.position.copy(drone.position);
+
+    controls.target.lerp(drone.position, 0.02);
+    updateHud(latest);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+connect();
+animate();
+  </script>
+</body>
+</html>

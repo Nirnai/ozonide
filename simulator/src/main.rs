@@ -1,16 +1,14 @@
-mod imu_model;
+mod models;
 mod physics;
+mod app;
 
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use imu_model::ImuModel;
 use ozonide_core::msgs::{ActuatorCommand, ImuData};
-use physics::{QuadParams, State};
 
-/// Hover throttle: each motor at this level produces mass*g/4 thrust.
-fn hover_throttle(p: &QuadParams) -> f32 {
+fn hover_throttle(p: &physics::QuadParams) -> f32 {
     let hover_thrust = p.mass * 9.80665 / 4.0;
     (hover_thrust / p.k_thrust).sqrt() as f32
 }
@@ -19,7 +17,7 @@ fn hover_throttle(p: &QuadParams) -> f32 {
 async fn main() {
     println!("Ozonide simulator starting...");
 
-    let params = QuadParams::default();
+    let params = physics::QuadParams::default();
     let h = hover_throttle(&params);
     println!("Hover throttle: {:.3}", h);
 
@@ -28,7 +26,16 @@ async fn main() {
         motor_throttle: [h; 4],
     }));
 
-    // Actuator receiver task: listens on UDP 5006 for commands from SITL.
+    // Watch channel: physics loop writes SimState, WebSocket clients read it.
+    let initial = physics::State::default();
+    let (state_tx, state_rx) = tokio::sync::watch::channel(app::SimState {
+        sim_time_us: 0,
+        position: initial.pos,
+        velocity: initial.vel,
+        quaternion: initial.quat,
+    });
+
+    // Actuator UDP receiver.
     let actuator_rx = Arc::clone(&actuator);
     tokio::spawn(async move {
         let sock = UdpSocket::bind("0.0.0.0:5006").expect("bind port 5006");
@@ -43,17 +50,19 @@ async fn main() {
         }
     });
 
-    // Physics + IMU loop: runs synchronously on its own thread.
-    // Physics at 4 kHz, IMU samples sent at 1 kHz.
+    // WebSocket server.
+    tokio::spawn(app::serve(state_rx));
+
+    // Physics + IMU loop on a dedicated OS thread.
     let sitl_sock = UdpSocket::bind("0.0.0.0:0").expect("bind ephemeral port");
     sitl_sock.connect("127.0.0.1:5005").expect("connect to SITL");
 
     let actuator_phys = Arc::clone(&actuator);
     tokio::task::spawn_blocking(move || {
-        let mut state = State::default();
-        let mut model = ImuModel::new(imu_model::ImuNoise::default());
+        let mut state = physics::State::default();
+        let mut model = models::ImuModel::new(models::ImuNoise::default());
         let mut rng = rand::thread_rng();
-        let p = QuadParams::default();
+        let p = physics::QuadParams::default();
 
         const PHYS_HZ: u64 = 4000;
         const IMU_HZ: u64 = 1000;
@@ -63,7 +72,6 @@ async fn main() {
         let mut sim_time_us: u64 = 0;
         let mut step_count: u64 = 0;
         let start = Instant::now();
-
         let mut buf = [0u8; 128];
 
         loop {
@@ -72,15 +80,20 @@ async fn main() {
             sim_time_us += (PHYS_DT * 1e6) as u64;
             step_count += 1;
 
-            // Emit IMU sample every PHYS_STEPS_PER_IMU physics steps.
             if step_count % PHYS_STEPS_PER_IMU == 0 {
                 let sample: ImuData = model.measure(&state, sim_time_us, &mut rng);
                 if let Ok(n) = postcard::to_slice(&sample, &mut buf) {
                     sitl_sock.send(n).ok();
                 }
+
+                state_tx.send(app::SimState {
+                    sim_time_us,
+                    position: state.pos,
+                    velocity: state.vel,
+                    quaternion: state.quat,
+                }).ok();
             }
 
-            // Real-time pacing: sleep to maintain wall-clock alignment.
             let elapsed = start.elapsed();
             let expected = Duration::from_micros(sim_time_us);
             if expected > elapsed {
