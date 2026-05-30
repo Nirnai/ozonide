@@ -1,36 +1,9 @@
-[package]
-name = "ozonide"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["firmware", "ozonide-core"]
+resolver = "2"
 
-[dependencies]
-# All embassy-* crates must share the same git source to avoid version conflicts
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", features = [
-    "rt",
-    "defmt",
-    "stm32h743vi",      # chip variant — VIT6 uses the 'vi' die
-    "time-driver-tim5", # 32-bit timer, TIM1/2 reserved for ESC/encoder
-    "exti",             # required for ExtiInput (async edge-triggered GPIO)
-] }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
-    "platform-cortex-m",  # required for all bare-metal Cortex-M targets (was arch-cortex-m pre-0.10)
-    "executor-thread",    # thread-mode Executor (low-priority tasks)
-    "executor-interrupt", # InterruptExecutor (high-priority tasks, e.g. IMU)
-    "defmt"
-] }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
-
-embedded-hal       = "1.0"
-embedded-hal-async = "1.0"
-embedded-hal-bus   = { version = "0.3", features = ["async"] }
-cortex-m = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
-cortex-m-rt = "0.7"
-defmt = "0.3"
-defmt-rtt = "0.4"
-panic-probe = { version = "0.3", features = ["print-defmt"] }
-static_cell = "2"
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-
-[build-dependencies]
-toml = "1.1.2"
+[workspace.dependencies]
+embassy-stm32    = { git = "https://github.com/embassy-rs/embassy" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy" }
+embassy-time     = { git = "https://github.com/embassy-rs/embassy" }
+embassy-sync     = { git = "https://github.com/embassy-rs/embassy" }

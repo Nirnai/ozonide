@@ -1,11 +1,6 @@
-// ============================================================================
-// Type Definitions
-// ============================================================================
-
 #[derive(Clone, Copy)]
 #[allow(non_camel_case_types)]
 pub enum SampleRate {
-    // Low Power or Low Noise mode
     _12_5_hz,
     _25_hz,
     _50_hz,
@@ -13,7 +8,6 @@ pub enum SampleRate {
     _200_hz,
     _500_hz,
     _1000_hz,
-    // Low Noise mode only
     _2000_hz,
     _4000_hz,
     _8000_hz,
@@ -63,13 +57,7 @@ impl Default for Config {
     }
 }
 
-
-// ============================================================================
-// Implementations
-// ============================================================================
-
 impl GyroscopeRange {
-    /// LSB/°/s from datasheet Table 1
     pub(super) fn sensitivity(&self) -> f32 {
         match self {
             Self::_250_dps => 131.0,
@@ -79,7 +67,6 @@ impl GyroscopeRange {
         }
     }
 
-    /// Bits [7:5] of GYRO_CONFIG0
     pub(super) fn fs_sel(&self) -> u8 {
         match self {
             Self::_2000_dps => 0b000,
@@ -91,7 +78,6 @@ impl GyroscopeRange {
 }
 
 impl AccelerometerRange {
-    /// LSB/g from datasheet Table 2
     pub(super) fn sensitivity(&self) -> f32 {
         match self {
             Self::_2_g => 16384.0,
@@ -101,7 +87,6 @@ impl AccelerometerRange {
         }
     }
 
-    /// Bits [7:5] of ACCEL_CONFIG0
     pub(super) fn fs_sel(&self) -> u8 {
         match self {
             Self::_16_g => 0b000,
@@ -113,7 +98,6 @@ impl AccelerometerRange {
 }
 
 impl SampleRate {
-    /// Bits [3:0] of GYRO_CONFIG0 / ACCEL_CONFIG0
     pub(super) fn odr(&self) -> u8 {
         match self {
             Self::_32000_hz => 0x01,
@@ -131,17 +115,20 @@ impl SampleRate {
         }
     }
 
-    /// Returns true if this ODR requires Low Noise mode
     pub(super) fn requires_low_noise(&self) -> bool {
-        matches!(self, 
-            Self::_1000_hz | Self::_2000_hz | Self::_4000_hz | 
-            Self::_8000_hz | Self::_16000_hz | Self::_32000_hz
+        matches!(
+            self,
+            Self::_1000_hz
+                | Self::_2000_hz
+                | Self::_4000_hz
+                | Self::_8000_hz
+                | Self::_16000_hz
+                | Self::_32000_hz
         )
     }
 }
 
 impl AccelerometerPowerMode {
-    /// Bits [1:0] of PWR_MGMT0
     pub(super) fn accel_mode(&self) -> u8 {
         match self {
             Self::_LowNoise => 0b11,
