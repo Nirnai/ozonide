@@ -4,5 +4,8 @@
 //! making them suitable for both in-process pub/sub and over-the-wire
 //! serialisation (UDP, WebSocket) in the SITL pipeline.
 
+mod actuator_command;
 mod imu_data;
+
+pub use actuator_command::ActuatorCommand;
 pub use imu_data::ImuData;

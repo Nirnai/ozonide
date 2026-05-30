@@ -6,9 +6,11 @@ edition = "2021"
 [features]
 default = []
 defmt = ["dep:defmt"]
+log   = ["dep:log"]
 
 [dependencies]
 embassy-sync = { workspace = true }
 embassy-time = { workspace = true }
 serde  = { version = "1.0", default-features = false, features = ["derive"] }
 defmt  = { version = "0.3", optional = true }
+log    = { version = "0.4", optional = true, default-features = false }

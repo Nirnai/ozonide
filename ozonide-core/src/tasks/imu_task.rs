@@ -19,6 +19,8 @@ pub async fn imu_task(source: &mut impl ImuSource) {
     source.init().await;
     #[cfg(feature = "defmt")]
     defmt::info!("IMU driver ready, entering sample loop");
+    #[cfg(feature = "log")]
+    log::info!("Simulated IMU ready, entering sample loop");
     let publisher = IMU_TOPIC.publisher();
     loop {
         source.data_ready().await;

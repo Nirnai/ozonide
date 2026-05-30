@@ -1,5 +1,5 @@
 [workspace]
-members = ["firmware", "ozonide-core"]
+members = ["firmware", "ozonide-core", "sitl", "simulator"]
 resolver = "2"
 
 [workspace.dependencies]

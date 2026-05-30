@@ -19,8 +19,12 @@ pub async fn rate_monitor(name: &'static str, count: &'static AtomicU32) {
     loop {
         Timer::after_secs(1).await;
         let current = count.load(Ordering::Relaxed);
+        let hz = current.wrapping_sub(prev);
         #[cfg(feature = "defmt")]
-        defmt::info!("{}: {} Hz", name, current - prev);
+        defmt::info!("{}: {} Hz", name, hz);
+        #[cfg(feature = "log")]
+        log::info!("{}: {} Hz", name, hz);
+        let _ = (name, hz); // ensure both are considered used when no logging feature is active
         prev = current;
     }
 }

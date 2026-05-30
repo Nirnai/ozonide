@@ -1,0 +1,10 @@
+[package]
+name = "simulator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ozonide-core = { path = "../ozonide-core" }
+tokio        = { version = "1", features = ["full"] }
+postcard     = { version = "1", default-features = false, features = ["use-std"] }
+rand         = "0.8"
