@@ -37,11 +37,40 @@
     }
     #status.connected    { background:#1a4731; color:#3fb950; border:1px solid #238636; }
     #status.disconnected { background:#3d1c1c; color:#f85149; border:1px solid #6e1c1c; }
+
+    #controls {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+    }
+    .ctrl-row { display: flex; gap: 10px; }
+    #controls button {
+      font-family: 'Courier New', monospace; font-size: 13px;
+      padding: 7px 18px; border-radius: 5px; border: 1px solid #30363d;
+      background: rgba(13,17,23,0.85); color: #e6edf3; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    #controls button:hover { background: #21262d; border-color: #58a6ff; }
+    #btn-play-pause.playing  { border-color: #3fb950; color: #3fb950; }
+    #btn-speed.realtime      { border-color: #58a6ff; color: #58a6ff; }
+    #btn-reset:active        { background: #21262d; }
+    #controls .btn-disturbance.active  { border-color: #d29922; color: #d29922; }
   </style>
 </head>
 <body>
   <div id="hud">Connecting…</div>
   <div id="status" class="disconnected">● Disconnected</div>
+  <div id="controls">
+    <div class="ctrl-row">
+      <button id="btn-reset">↺ Reset</button>
+      <button id="btn-play-pause">▶ Play</button>
+      <button id="btn-speed">⚡ Fast</button>
+    </div>
+    <div class="ctrl-row">
+      <button class="btn-disturbance active" data-mode="0" data-endpoint="/disturbance/gaussian">Gaussian</button>
+      <button class="btn-disturbance"        data-mode="1" data-endpoint="/disturbance/ou">OU Wind</button>
+      <button class="btn-disturbance"        data-mode="2" data-endpoint="/disturbance/none">None (Perturb)</button>
+    </div>
+  </div>
 
   <script type="module">
 import * as THREE from 'three';
@@ -137,7 +166,7 @@ function createDrone() {
   // Body
   g.add(Object.assign(
     new THREE.Mesh(
-      new THREE.BoxGeometry(0.18, 0.045, 0.18),
+      new THREE.BoxGeometry(0.10, 0.030, 0.10),
       new THREE.MeshLambertMaterial({ color: 0x1f6feb })
     ),
     { castShadow: true }
@@ -145,10 +174,10 @@ function createDrone() {
 
   // Red front marker — body +X = East when unrotated
   const front = new THREE.Mesh(
-    new THREE.BoxGeometry(0.04, 0.046, 0.04),
+    new THREE.BoxGeometry(0.028, 0.031, 0.028),
     new THREE.MeshLambertMaterial({ color: 0xf85149 })
   );
-  front.position.set(0.09, 0, 0);
+  front.position.set(0.05, 0, 0);
   g.add(front);
 
   // Motor positions in Three.js local space.
@@ -168,7 +197,7 @@ function createDrone() {
 
   for (const { pos: [mx, my, mz], light } of motors) {
     // Arm
-    const armLen = Math.hypot(mx, mz) * 2;
+    const armLen = Math.hypot(mx, mz);
     const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.015, 0.025), armMat);
     arm.position.set(mx / 2, 0, mz / 2);
     arm.rotation.y = -Math.atan2(mz, mx);
@@ -223,7 +252,7 @@ function enuPos([x, y, z]) {
   return new THREE.Vector3(x, z, -y);
 }
 
-function enuQuat([qw, qx, qy, qz]) {
+function enuQuat([qx, qy, qz, qw]) {
   return new THREE.Quaternion(qx, qz, -qy, qw);
 }
 
@@ -285,6 +314,44 @@ window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------------------------------------------------------------------------
+// Simulation controls
+// ---------------------------------------------------------------------------
+
+const btnPlayPause = document.getElementById('btn-play-pause');
+const btnReset     = document.getElementById('btn-reset');
+const btnSpeed     = document.getElementById('btn-speed');
+let playing = false;
+let isRealtime = false;
+
+function setPlaying(v) {
+  playing = v;
+  btnPlayPause.textContent = playing ? '⏸ Pause' : '▶ Play';
+  btnPlayPause.classList.toggle('playing', playing);
+  fetch(playing ? '/play' : '/pause');
+}
+
+function setRealtime(v) {
+  isRealtime = v;
+  btnSpeed.textContent = isRealtime ? '×1 RT' : '⚡ Fast';
+  btnSpeed.classList.toggle('realtime', isRealtime);
+  fetch(isRealtime ? '/set-realtime' : '/set-fast');
+}
+
+btnPlayPause.addEventListener('click', () => setPlaying(!playing));
+btnReset.addEventListener('click', () => fetch('/reset'));
+btnSpeed.addEventListener('click', () => setRealtime(!isRealtime));
+
+// Disturbance mode
+const disturbanceBtns = document.querySelectorAll('.btn-disturbance');
+disturbanceBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    disturbanceBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    fetch(btn.dataset.endpoint);
+  });
 });
 
 connect();

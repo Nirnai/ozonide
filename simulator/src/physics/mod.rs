@@ -1,7 +1,7 @@
+mod parameters;
+mod state;
 mod physics;
 
-pub use physics::QuadParams;
-pub use physics::State;
-// pub use physics::body_to_world;
-pub use physics::world_to_body;
+pub use parameters::{GRAVITATIONAL_CONSTANT, VehicleParameters};
+pub use state::VehicleState;
 pub use physics::step;

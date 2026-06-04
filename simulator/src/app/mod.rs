@@ -1,4 +1,4 @@
-mod ws_server;
+mod server;
 
-pub use ws_server::SimState;
-pub use ws_server::serve;
+pub use server::SimulationState;
+pub use server::serve;

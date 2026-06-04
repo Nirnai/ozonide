@@ -4,39 +4,48 @@ mod app;
 
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
-use ozonide_core::msgs::{ActuatorCommand, ImuData};
 
-fn hover_throttle(p: &physics::QuadParams) -> f32 {
-    let hover_thrust = p.mass * 9.80665 / 4.0;
-    (hover_thrust / p.k_thrust).sqrt() as f32
+use ozonide_core::msgs::{ActuatorCommand, ImuData};
+use models::DisturbanceType;
+
+fn hover_throttle(mass: f64, actuator_model: models::ActuatorModel) -> f32 {
+    let thrust_per_motor = mass * physics::GRAVITATIONAL_CONSTANT / 4.0;
+    let omega_hover = (thrust_per_motor / actuator_model.k_t).sqrt();
+    (omega_hover / actuator_model.omega_max).clamp(0.0, 1.0) as f32
 }
 
 #[tokio::main]
 async fn main() {
     println!("Ozonide simulator starting...");
 
-    let params = physics::QuadParams::default();
-    let h = hover_throttle(&params);
-    println!("Hover throttle: {:.3}", h);
+    let vehicle_parameters = physics::VehicleParameters::default();
+    let h: f32 = hover_throttle(vehicle_parameters.mass, models::ActuatorModel::default());
 
     // Shared actuator command: simulator reads, SITL writes.
-    let actuator: Arc<Mutex<ActuatorCommand>> = Arc::new(Mutex::new(ActuatorCommand {
+    let actuator_commands: Arc<Mutex<ActuatorCommand>> = Arc::new(Mutex::new(ActuatorCommand {
         motor_throttle: [h; 4],
     }));
 
+    // Simulation control flags — starts paused, full speed.
+    let paused = Arc::new(AtomicBool::new(true));
+    let reset_requested = Arc::new(AtomicBool::new(false));
+    let realtime = Arc::new(AtomicBool::new(false));
+    let disturbance_mode = Arc::new(AtomicU8::new(0)); 
+
     // Watch channel: physics loop writes SimState, WebSocket clients read it.
-    let initial = physics::State::default();
-    let (state_tx, state_rx) = tokio::sync::watch::channel(app::SimState {
+    let initial_state = physics::VehicleState::default();
+    let (state_tx, state_rx) = tokio::sync::watch::channel(app::SimulationState {
         sim_time_us: 0,
-        position: initial.pos,
-        velocity: initial.vel,
-        quaternion: initial.quat,
+        position: initial_state.position.into(),
+        velocity: initial_state.linear_velocity.into(),
+        quaternion: initial_state.attitude.coords.into(),
     });
 
     // Actuator UDP receiver.
-    let actuator_rx = Arc::clone(&actuator);
+    let actuator_commands_rx = Arc::clone(&actuator_commands);
     tokio::spawn(async move {
         let sock = UdpSocket::bind("0.0.0.0:5006").expect("bind port 5006");
         println!("Simulator listening for actuator commands on UDP :5006");
@@ -44,25 +53,34 @@ async fn main() {
         loop {
             if let Ok((n, _)) = sock.recv_from(&mut buf) {
                 if let Ok(cmd) = postcard::from_bytes::<ActuatorCommand>(&buf[..n]) {
-                    *actuator_rx.lock().unwrap() = cmd;
+                    *actuator_commands_rx.lock().unwrap() = cmd;
                 }
             }
         }
     });
 
-    // WebSocket server.
-    tokio::spawn(app::serve(state_rx));
+    // WebSocket + control HTTP server.
+    tokio::spawn(app::serve(
+        state_rx,
+        Arc::clone(&paused),
+        Arc::clone(&reset_requested),
+        Arc::clone(&realtime),
+        Arc::clone(&disturbance_mode),
+    ));
 
     // Physics + IMU loop on a dedicated OS thread.
     let sitl_sock = UdpSocket::bind("0.0.0.0:0").expect("bind ephemeral port");
     sitl_sock.connect("127.0.0.1:5005").expect("connect to SITL");
 
-    let actuator_phys = Arc::clone(&actuator);
+    let actuator_physics = Arc::clone(&actuator_commands);
     tokio::task::spawn_blocking(move || {
-        let mut state = physics::State::default();
+        let mut state = physics::VehicleState::default();
         let mut model = models::ImuModel::new(models::ImuNoise::default());
-        let mut rng = rand::thread_rng();
-        let p = physics::QuadParams::default();
+        let mut rng = rand::rng();
+        let mut disturbance_model = models::DisturbanceModel::new(models::DisturbanceType::NoDisturbance);
+        let parameters = physics::VehicleParameters::default();
+        let actuator_model = models::ActuatorModel::default();
+        
 
         const PHYS_HZ: u64 = 4000;
         const IMU_HZ: u64 = 1000;
@@ -71,12 +89,59 @@ async fn main() {
 
         let mut sim_time_us: u64 = 0;
         let mut step_count: u64 = 0;
-        let start = Instant::now();
+        let mut wall_start = Instant::now();
+        // Tracks whether we were paused on the previous iteration so we can
+        // re-anchor wall_start on unpause and avoid a catch-up burst.
+        let mut was_paused = true;
         let mut buf = [0u8; 128];
 
         loop {
-            let throttle = actuator_phys.lock().unwrap().motor_throttle;
-            state = physics::step(&state, throttle, &p, PHYS_DT);
+            // Reset is checked before the paused gate so it applies immediately
+            // even while paused, and the frontend gets the updated position.
+            if reset_requested.swap(false, Ordering::Relaxed) {
+                state = physics::VehicleState::default();
+                disturbance_model.force = nalgebra::Vector3::zeros();
+                disturbance_model.torque = nalgebra::Vector3::zeros();
+                sim_time_us = 0;
+                step_count = 0;
+                wall_start = Instant::now();
+                was_paused = paused.load(Ordering::Relaxed);
+                model = models::ImuModel::new(models::ImuNoise::default());
+                state_tx.send(app::SimulationState {
+                    sim_time_us: 0,
+                    position: state.position.into(),
+                    velocity: state.linear_velocity.into(),
+                    quaternion: state.attitude.coords.into(),
+                }).ok();
+            }
+
+            if paused.load(Ordering::Relaxed) {
+                was_paused = true;
+                std::thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+
+            // Unpause transition: re-anchor wall_start so the pacing logic
+            // doesn't see a large accumulated lag and rush through physics.
+            if was_paused {
+                wall_start = Instant::now() - Duration::from_micros(sim_time_us);
+                was_paused = false;
+            }
+
+            disturbance_model.disturbance_type = match disturbance_mode.load(Ordering::Relaxed) {
+                1 => DisturbanceType::OrnsteinUhlenbeck,
+                2 => DisturbanceType::NoDisturbance,
+                _ => DisturbanceType::Gaussian,
+            };
+
+            let throttle_raw = actuator_physics.lock().unwrap().motor_throttle;
+            let throttle = nalgebra::Vector4::new(
+                throttle_raw[0] as f64,
+                throttle_raw[1] as f64,
+                throttle_raw[2] as f64,
+                throttle_raw[3] as f64,
+            );
+            state = physics::step(throttle, &state, &parameters, &actuator_model, &mut disturbance_model, &mut rng, PHYS_DT);
             sim_time_us += (PHYS_DT * 1e6) as u64;
             step_count += 1;
 
@@ -86,18 +151,21 @@ async fn main() {
                     sitl_sock.send(n).ok();
                 }
 
-                state_tx.send(app::SimState {
+                state_tx.send(app::SimulationState {
                     sim_time_us,
-                    position: state.pos,
-                    velocity: state.vel,
-                    quaternion: state.quat,
+                    position: state.position.into(),
+                    velocity: state.linear_velocity.into(),
+                    quaternion: state.attitude.coords.into(),
                 }).ok();
             }
 
-            let elapsed = start.elapsed();
-            let expected = Duration::from_micros(sim_time_us);
-            if expected > elapsed {
-                std::thread::sleep(expected - elapsed);
+            // Real-time pacing: only sleep when the flag is set.
+            if realtime.load(Ordering::Relaxed) {
+                let elapsed = wall_start.elapsed();
+                let expected = Duration::from_micros(sim_time_us);
+                if expected > elapsed {
+                    std::thread::sleep(expected - elapsed);
+                }
             }
         }
     })
