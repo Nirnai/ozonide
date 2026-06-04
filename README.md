@@ -97,6 +97,7 @@ static mut IMU_CALIBRATION: CalibData = CalibData::default();
 
 ## IMU
 
+```
 ICM42688 Module    →    STM32H743VIT6
 ─────────────────────────────────────
 VDD                →    3.3V
@@ -108,3 +109,4 @@ MISO (SDO)         →    PA6 (SPI1_MISO)
 CS (nCS)           →    PA4 (GPIO)
 INT1 (optional)    →    PB0 (GPIO/EXTI)
 INT2 (optional)    →    PB1 (GPIO/EXTI)
+```
