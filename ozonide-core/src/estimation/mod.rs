@@ -1,3 +1,3 @@
-mod complementary_filter;
+mod complementary_attitude_estimator;
 
-pub use complementary_filter::{AttitudeEstimate, ComplementaryFilter};
+pub use complementary_attitude_estimator::ComplementaryAttitudeEstimator;

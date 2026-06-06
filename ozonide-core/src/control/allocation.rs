@@ -8,9 +8,9 @@ use nalgebra::{Vector4, Matrix4};
 /// | Parameter | Range     | Meaning |
 /// |-----------|-----------|---------|
 /// | `thrust`  | `[0, 1]`  | Collective throttle. `0` = motors off, `1` = full power. |
-/// | `roll`    | `[-1, 1]` | Roll correction from rate PID. Positive = roll right. |
-/// | `pitch`   | `[-1, 1]` | Pitch correction from rate PID. Positive = pitch forward. |
-/// | `yaw`     | `[-1, 1]` | Yaw correction from rate PID. Positive = rotate CCW from above. |
+/// | `roll_rate_correction`  | `[-1, 1]` | Roll correction from rate PID. Positive = roll right. |
+/// | `pitch_rate_correction` | `[-1, 1]` | Pitch correction from rate PID. Positive = pitch forward. |
+/// | `yaw_rate_correction`   | `[-1, 1]` | Yaw correction from rate PID. Positive = rotate CCW from above. |
 ///
 /// # Mixing matrix
 ///
@@ -31,14 +31,19 @@ use nalgebra::{Vector4, Matrix4};
 /// Per-motor throttle `[FR, RL, FL, RR]` clamped to `[0, 1]`. Clamping is applied
 /// independently per motor; no priority scaling is performed here — see
 /// `authority` for saturation handling before this function is called.
-pub fn allocate_normalized_throttle_commands(thrust: f32, roll: f32, pitch: f32, yaw: f32) -> Vector4<f32> {
+pub fn allocate_normalized_throttle_commands(
+    thrust: f32,
+    roll_rate_correction: f32,
+    pitch_rate_correction: f32,
+    yaw_rate_correction: f32,
+) -> Vector4<f32> {
     const MIXING_MATRIX: Matrix4<f32> = Matrix4::new(
         1.0, -1.0, -1.0,  1.0,  // row 0: FR [thrust, roll, pitch, yaw]
         1.0,  1.0,  1.0,  1.0,  // row 1: RL
         1.0,  1.0, -1.0, -1.0,  // row 2: FL
         1.0, -1.0,  1.0, -1.0,  // row 3: RR
     );
-    let input = Vector4::new(thrust, roll, pitch, yaw);
+    let input = Vector4::new(thrust, roll_rate_correction, pitch_rate_correction, yaw_rate_correction);
     (MIXING_MATRIX * input).map(|x| x.clamp(0.0, 1.0))
 }
 

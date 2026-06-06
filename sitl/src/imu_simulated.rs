@@ -7,29 +7,29 @@ use ozonide_core::traits::ImuSource;
 /// `init()` binds the socket; `data_ready()` polls it non-blocking and yields to the
 /// executor on `WouldBlock`, so no separate thread or channel is needed.
 pub struct ImuSimulated {
-    sock: Option<std::net::UdpSocket>,
+    socket: Option<std::net::UdpSocket>,
     pending: Option<ImuData>,
 }
 
 impl ImuSimulated {
     pub fn new() -> Self {
-        Self { sock: None, pending: None }
+        Self { socket: None, pending: None }
     }
 }
 
 impl ImuSource for ImuSimulated {
     async fn init(&mut self) {
-        let sock = std::net::UdpSocket::bind("0.0.0.0:5005")
+        let socket = std::net::UdpSocket::bind("0.0.0.0:5005")
             .expect("ImuSimulated: bind UDP :5005");
-        sock.set_nonblocking(true).expect("ImuSimulated: set_nonblocking");
+        socket.set_nonblocking(true).expect("ImuSimulated: set_nonblocking");
         log::info!("ImuSimulated listening for ImuData on UDP :5005");
-        self.sock = Some(sock);
+        self.socket = Some(socket);
     }
 
     async fn data_ready(&mut self) {
         let mut buf = [0u8; 64];
         loop {
-            match self.sock.as_ref().unwrap().recv(&mut buf) {
+            match self.socket.as_ref().unwrap().recv(&mut buf) {
                 Ok(n) => {
                     if let Ok(data) = postcard::from_bytes::<ImuData>(&buf[..n]) {
                         self.pending = Some(data);
