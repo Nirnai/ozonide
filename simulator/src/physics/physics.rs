@@ -1,3 +1,21 @@
+//! RK4 rigid body integrator for the quadrotor dynamics.
+//!
+//! The public entry point is [`step`], which advances the full vehicle state
+//! by one time step. Internal helpers compute the state derivative ([`derivative`])
+//! and perform partial integration ([`integrate`]) for the four RK4 stages.
+//!
+//! ## Forces and torques modelled
+//!
+//! | Source | Frame | Expression |
+//! |--------|-------|------------|
+//! | Motor thrust + drag | Body → World | actuator wrench via moment arms |
+//! | Gravity | World | `−g·m·ẑ` |
+//! | Translational drag | World | `−k_drag_lin · v` |
+//! | Rotational drag | Body | `−k_drag_rot · ω` |
+//! | Ground spring-damper | World Z | prevents terrain penetration |
+//! | Ground friction | World XY | velocity damping when `z ≤ 0` |
+//! | External disturbances | World | Gaussian or OU wind gusts |
+
 use nalgebra::{Quaternion, UnitQuaternion, Vector3, Vector4};
 use rand::Rng;
 
@@ -6,6 +24,21 @@ use super::state::{VehicleState, VehicleStateDot};
 use crate::models::{ActuatorModel, DisturbanceModel};
 
 
+/// Advances the vehicle state by `dt` seconds using a classical 4th-order Runge-Kutta scheme.
+///
+/// The disturbance wrench is sampled **once** before the four derivative evaluations
+/// and treated as constant across all RK4 stages. This is both physically correct
+/// (external wind does not change within a single step) and required for the
+/// Ornstein-Uhlenbeck model, whose internal state must advance exactly once per step.
+///
+/// # Arguments
+/// * `throttle`          — normalised motor commands \[FR, RL, FL, RR\] in `[0, 1]`
+/// * `state`             — vehicle state at the start of the step
+/// * `params`            — airframe physical parameters
+/// * `actuator_model`    — motor and propeller aerodynamic model
+/// * `disturbance_model` — wind/gust model (OU state is mutated here)
+/// * `rng`               — random number generator for stochastic disturbances
+/// * `dt`                — integration time step (s); typically 0.25 ms at 4 kHz
 pub fn step(
     throttle: Vector4<f64>,
     state: &VehicleState,

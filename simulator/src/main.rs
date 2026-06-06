@@ -11,10 +11,18 @@ use std::time::{Duration, Instant};
 use ozonide_core::msgs::{ActuatorCommand, ImuData};
 use models::DisturbanceType;
 
-fn hover_throttle(mass: f64, actuator_model: models::ActuatorModel) -> f32 {
+/// Returns `(throttle_norm, omega_hover_rad_s)` for level hover.
+fn hover_throttle(mass: f64, actuator_model: &models::ActuatorModel) -> (f32, f64) {
     let thrust_per_motor = mass * physics::GRAVITATIONAL_CONSTANT / 4.0;
     let omega_hover = (thrust_per_motor / actuator_model.k_t).sqrt();
-    (omega_hover / actuator_model.omega_max).clamp(0.0, 1.0) as f32
+    ((omega_hover / actuator_model.omega_max).clamp(0.0, 1.0) as f32, omega_hover)
+}
+
+fn make_initial_state(omega_hover: f64) -> physics::VehicleState {
+    physics::VehicleState {
+        motor_angular_velocity: nalgebra::Vector4::from_element(omega_hover),
+        ..Default::default()
+    }
 }
 
 #[tokio::main]
@@ -22,21 +30,22 @@ async fn main() {
     println!("Ozonide simulator starting...");
 
     let vehicle_parameters = physics::VehicleParameters::default();
-    let h: f32 = hover_throttle(vehicle_parameters.mass, models::ActuatorModel::default());
+    let actuator_model_main = models::ActuatorModel::default();
+    let (throttle_hover, omega_hover) = hover_throttle(vehicle_parameters.mass, &actuator_model_main);
 
     // Shared actuator command: simulator reads, SITL writes.
     let actuator_commands: Arc<Mutex<ActuatorCommand>> = Arc::new(Mutex::new(ActuatorCommand {
-        motor_throttle: [h; 4],
+        motor_throttle: [throttle_hover; 4],
     }));
 
     // Simulation control flags — starts paused, full speed.
     let paused = Arc::new(AtomicBool::new(true));
     let reset_requested = Arc::new(AtomicBool::new(false));
     let realtime = Arc::new(AtomicBool::new(false));
-    let disturbance_mode = Arc::new(AtomicU8::new(0)); 
+    let disturbance_mode = Arc::new(AtomicU8::new(0));
 
     // Watch channel: physics loop writes SimState, WebSocket clients read it.
-    let initial_state = physics::VehicleState::default();
+    let initial_state = make_initial_state(omega_hover);
     let (state_tx, state_rx) = tokio::sync::watch::channel(app::SimulationState {
         sim_time_us: 0,
         position: initial_state.position.into(),
@@ -75,7 +84,7 @@ async fn main() {
     let actuator_physics = Arc::clone(&actuator_commands);
     tokio::task::spawn_blocking(move || {
         let mut rng = rand::rng();
-        let mut state = physics::VehicleState::default();
+        let mut state = make_initial_state(omega_hover);
         let mut model = models::ImuModel::new(models::ImuNoise::default(), &mut rng);
         let mut disturbance_model = models::DisturbanceModel::new(models::DisturbanceType::NoDisturbance);
         let parameters = physics::VehicleParameters::default();
@@ -99,7 +108,7 @@ async fn main() {
             // Reset is checked before the paused gate so it applies immediately
             // even while paused, and the frontend gets the updated position.
             if reset_requested.swap(false, Ordering::Relaxed) {
-                state = physics::VehicleState::default();
+                state = make_initial_state(omega_hover);
                 disturbance_model.force = nalgebra::Vector3::zeros();
                 disturbance_model.torque = nalgebra::Vector3::zeros();
                 sim_time_us = 0;

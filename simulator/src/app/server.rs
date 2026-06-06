@@ -1,3 +1,10 @@
+//! Axum HTTP + WebSocket server implementation.
+//!
+//! Serves the bundled frontend and manages a pool of WebSocket clients, each
+//! receiving a 60 Hz JSON stream of [`SimulationState`]. Control signals from
+//! the frontend are translated into atomic writes that the physics loop reads
+//! on its next iteration, keeping the two loops fully decoupled.
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::Duration;
@@ -14,12 +21,13 @@ use tokio::sync::watch;
 /// Vehicle state broadcast to WebSocket clients at 60 Hz.
 #[derive(Clone, Serialize)]
 pub struct SimulationState {
+    /// Simulation time in microseconds since the last reset.
     pub sim_time_us: u64,
-    /// Position in ENU world frame (metres).
+    /// Position in the ENU world frame (m).
     pub position: [f64; 3],
-    /// Velocity in ENU world frame (m/s).
+    /// Velocity in the ENU world frame (m/s).
     pub velocity: [f64; 3],
-    /// Unit quaternion [x, y, z, w]: body → world rotation.
+    /// Unit quaternion \[x, y, z, w\] representing the body → world rotation.
     pub quaternion: [f64; 4],
 }
 
@@ -34,6 +42,13 @@ struct AppState {
 
 static FRONTEND: &str = include_str!("index.html");
 
+/// Starts the HTTP + WebSocket server on `0.0.0.0:9001`.
+///
+/// Intended to be spawned as a Tokio task. Runs until the process exits.
+/// Communication with the physics loop uses shared atomics:
+/// - `paused` / `reset_requested` / `realtime` — boolean control flags
+/// - `disturbance_mode` — `0` = Gaussian, `1` = OU wind, `2` = no disturbance
+/// - `rx` — watch channel carrying the latest [`SimulationState`] from the physics loop
 pub async fn serve(
     rx: watch::Receiver<SimulationState>,
     paused: Arc<AtomicBool>,
