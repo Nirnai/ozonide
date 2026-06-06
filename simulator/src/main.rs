@@ -1,21 +1,23 @@
+mod app;
 mod models;
 mod physics;
-mod app;
 
 use std::net::UdpSocket;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-
-use ozonide_core::msgs::{ActuatorCommand, ImuData};
 use models::DisturbanceType;
+use ozonide_core::msgs::{ActuatorCommand, ImuData};
 
 /// Returns `(throttle_norm, omega_hover_rad_s)` for level hover.
 fn hover_throttle(mass: f64, actuator_model: &models::ActuatorModel) -> (f32, f64) {
     let thrust_per_motor = mass * physics::GRAVITATIONAL_CONSTANT / 4.0;
     let omega_hover = (thrust_per_motor / actuator_model.k_t).sqrt();
-    ((omega_hover / actuator_model.omega_max).clamp(0.0, 1.0) as f32, omega_hover)
+    (
+        (omega_hover / actuator_model.omega_max).clamp(0.0, 1.0) as f32,
+        omega_hover,
+    )
 }
 
 fn make_initial_state(omega_hover: f64) -> physics::VehicleState {
@@ -31,7 +33,8 @@ async fn main() {
 
     let vehicle_parameters = physics::VehicleParameters::default();
     let actuator_model_main = models::ActuatorModel::default();
-    let (throttle_hover, omega_hover) = hover_throttle(vehicle_parameters.mass, &actuator_model_main);
+    let (throttle_hover, omega_hover) =
+        hover_throttle(vehicle_parameters.mass, &actuator_model_main);
 
     // Shared actuator command: simulator reads, SITL writes.
     let actuator_commands: Arc<Mutex<ActuatorCommand>> = Arc::new(Mutex::new(ActuatorCommand {
@@ -79,17 +82,19 @@ async fn main() {
 
     // Physics + IMU loop on a dedicated OS thread.
     let sitl_sock = UdpSocket::bind("0.0.0.0:0").expect("bind ephemeral port");
-    sitl_sock.connect("127.0.0.1:5005").expect("connect to SITL");
+    sitl_sock
+        .connect("127.0.0.1:5005")
+        .expect("connect to SITL");
 
     let actuator_physics = Arc::clone(&actuator_commands);
     tokio::task::spawn_blocking(move || {
         let mut rng = rand::rng();
         let mut state = make_initial_state(omega_hover);
         let mut model = models::ImuModel::new(models::ImuNoise::default(), &mut rng);
-        let mut disturbance_model = models::DisturbanceModel::new(models::DisturbanceType::NoDisturbance);
+        let mut disturbance_model =
+            models::DisturbanceModel::new(models::DisturbanceType::NoDisturbance);
         let parameters = physics::VehicleParameters::default();
         let actuator_model = models::ActuatorModel::default();
-        
 
         const PHYS_HZ: u64 = 4000;
         const IMU_HZ: u64 = 1000;
@@ -116,12 +121,14 @@ async fn main() {
                 wall_start = Instant::now();
                 was_paused = paused.load(Ordering::Relaxed);
                 model = models::ImuModel::new(models::ImuNoise::default(), &mut rng);
-                state_tx.send(app::SimulationState {
-                    sim_time_us: 0,
-                    position: state.position.into(),
-                    velocity: state.linear_velocity.into(),
-                    quaternion: state.attitude.coords.into(),
-                }).ok();
+                state_tx
+                    .send(app::SimulationState {
+                        sim_time_us: 0,
+                        position: state.position.into(),
+                        velocity: state.linear_velocity.into(),
+                        quaternion: state.attitude.coords.into(),
+                    })
+                    .ok();
             }
 
             if paused.load(Ordering::Relaxed) {
@@ -150,22 +157,33 @@ async fn main() {
                 throttle_raw[2] as f64,
                 throttle_raw[3] as f64,
             );
-            state = physics::step(throttle, &state, &parameters, &actuator_model, &mut disturbance_model, &mut rng, PHYS_DT);
+            let (new_state, state_dot) = physics::step(
+                throttle,
+                &state,
+                &parameters,
+                &actuator_model,
+                &mut disturbance_model,
+                &mut rng,
+                PHYS_DT,
+            );
+            state = new_state;
             sim_time_us += (PHYS_DT * 1e6) as u64;
             step_count += 1;
 
             if step_count % PHYS_STEPS_PER_IMU == 0 {
-                let sample: ImuData = model.measure(&state, sim_time_us, &mut rng);
+                let sample: ImuData = model.measure(&state, &state_dot, sim_time_us, &mut rng);
                 if let Ok(n) = postcard::to_slice(&sample, &mut buf) {
                     sitl_sock.send(n).ok();
                 }
 
-                state_tx.send(app::SimulationState {
-                    sim_time_us,
-                    position: state.position.into(),
-                    velocity: state.linear_velocity.into(),
-                    quaternion: state.attitude.coords.into(),
-                }).ok();
+                state_tx
+                    .send(app::SimulationState {
+                        sim_time_us,
+                        position: state.position.into(),
+                        velocity: state.linear_velocity.into(),
+                        quaternion: state.attitude.coords.into(),
+                    })
+                    .ok();
             }
 
             // Real-time pacing: only sleep when the flag is set.

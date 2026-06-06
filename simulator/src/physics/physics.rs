@@ -47,7 +47,7 @@ pub fn step(
     disturbance_model: &mut DisturbanceModel,
     rng: &mut impl Rng,
     dt: f64,
-) -> VehicleState {
+) -> (VehicleState, VehicleStateDot) {
     let disturbance_wrench = disturbance_model.generate(params, rng, dt);
     // let disturbances = random_disturbances(rng, params);
     let k1 = derivative(throttle, state, params, actuator_model, disturbance_wrench);
@@ -72,8 +72,8 @@ pub fn step(
         actuator_model,
         disturbance_wrench,
     );
-    let combined_state_dot = k1 + k2 * 2.0 + k3 * 2.0 + k4;
-    integrate(state, &combined_state_dot, dt / 6.0)
+    let combined_state_dot = (k1 + k2 * 2.0 + k3 * 2.0 + k4) * (1.0/6.0);
+    (integrate(state, &combined_state_dot, dt), combined_state_dot)
 }
 
 fn integrate(state: &VehicleState, state_dot: &VehicleStateDot, dt: f64) -> VehicleState {

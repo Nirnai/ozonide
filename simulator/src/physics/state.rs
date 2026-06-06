@@ -43,7 +43,6 @@ pub struct VehicleStateDot {
     pub motor_angular_acceleration: Vector4<f64>,
 }
 
-
 impl Default for VehicleState {
     fn default() -> Self {
         Self {
@@ -56,6 +55,17 @@ impl Default for VehicleState {
     }
 }
 
+impl Default for VehicleStateDot {
+    fn default() -> Self {
+        Self {
+            linear_velocity: Vector3::zeros(),
+            attitude_rate: Quaternion::identity(),
+            linear_acceleration: Vector3::zeros(),
+            angular_acceleration: Vector3::zeros(),
+            motor_angular_acceleration: Vector4::zeros(),
+        }
+    }
+}
 
 impl Add for VehicleStateDot {
     type Output = Self;

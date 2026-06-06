@@ -3,7 +3,7 @@ use nalgebra::Vector3;
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
 
-use crate::physics::{VehicleState, GRAVITATIONAL_CONSTANT};
+use crate::physics::{VehicleState, VehicleStateDot, GRAVITATIONAL_CONSTANT};
 use ozonide_core::msgs::ImuData;
 
 /// Additive white Gaussian noise parameters for the IMU.
@@ -35,12 +35,10 @@ impl Default for ImuNoise {
     }
 }
 
-/// Full IMU model: tracks world-frame velocity to derive acceleration between steps.
 pub struct ImuModel {
     pub noise_parameters: ImuNoise,
     accel_bias_state: Vector3<f64>,
     gyro_bias_state: Vector3<f64>,
-    last_velocity: Vector3<f64>,
     last_time_us: u64,
 }
 
@@ -62,7 +60,6 @@ impl ImuModel {
             noise_parameters,
             accel_bias_state,
             gyro_bias_state,
-            last_velocity: Vector3::zeros(),
             last_time_us: 0,
         }
     }
@@ -70,14 +67,14 @@ impl ImuModel {
     pub fn measure(
         &mut self,
         state: &VehicleState,
+        state_dot: &VehicleStateDot,
         sim_time_us: u64,
         rng: &mut impl Rng,
     ) -> ImuData {
         let normal_distribution = Normal::new(0.0, 1.0).unwrap();
+        let acceleration_world = state_dot.linear_acceleration;
         let dt = u64::saturating_sub(sim_time_us, self.last_time_us) as f64 * 1e-6;
-        let mut acceleration_world = Vector3::zeros();
         if dt > 0.0 {
-            acceleration_world = (state.linear_velocity - self.last_velocity) / dt;
             let dt_sqrt = dt.sqrt();
             self.accel_bias_state += Vector3::new(
                 normal_distribution.sample(rng),
@@ -92,7 +89,6 @@ impl ImuModel {
             ) * self.noise_parameters.gyro_walk_std
                 * dt_sqrt;
         }
-        self.last_velocity = state.linear_velocity;
         self.last_time_us = sim_time_us;
 
         // Specific force in world frame: acceleration minus gravity (ENU: gravity = -Z).
@@ -163,6 +159,7 @@ mod tests {
 
     fn collect_samples(n: usize, noise_parameters: ImuNoise, seed: u64) -> Vec<ImuData> {
         let state = VehicleState::default();
+        let state_dot = VehicleStateDot::default();
         let sampling_dt_us = 1000;
         let mut rng = StdRng::seed_from_u64(seed);
         let mut model = ImuModel::new(noise_parameters, &mut rng);
@@ -170,7 +167,7 @@ mod tests {
         for i in 0..n {
             // Skip zero case for proper statistics
             let sim_time_us = ((i + 1) * sampling_dt_us) as u64;
-            let sample = model.measure(&state, sim_time_us, &mut rng);
+            let sample = model.measure(&state, &state_dot, sim_time_us, &mut rng);
             samples.push(sample);
         }
         samples
@@ -189,7 +186,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let mut model = ImuModel::new(ImuNoise::default(), &mut rng);
         let state = VehicleState::default();
-        let sample = model.measure(&state, 0, &mut rng); // sim_time_us == last_time_us == 0 → dt = 0
+        let state_dot = VehicleStateDot::default();
+        let sample = model.measure(&state, &state_dot, 0, &mut rng); // sim_time_us == last_time_us == 0 → dt = 0
         assert!(sample.linear_acceleration.iter().all(|v| v.is_finite()));
         assert!(sample.angular_velocity.iter().all(|v| v.is_finite()));
     }
