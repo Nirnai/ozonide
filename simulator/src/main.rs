@@ -74,9 +74,9 @@ async fn main() {
 
     let actuator_physics = Arc::clone(&actuator_commands);
     tokio::task::spawn_blocking(move || {
-        let mut state = physics::VehicleState::default();
-        let mut model = models::ImuModel::new(models::ImuNoise::default());
         let mut rng = rand::rng();
+        let mut state = physics::VehicleState::default();
+        let mut model = models::ImuModel::new(models::ImuNoise::default(), &mut rng);
         let mut disturbance_model = models::DisturbanceModel::new(models::DisturbanceType::NoDisturbance);
         let parameters = physics::VehicleParameters::default();
         let actuator_model = models::ActuatorModel::default();
@@ -106,7 +106,7 @@ async fn main() {
                 step_count = 0;
                 wall_start = Instant::now();
                 was_paused = paused.load(Ordering::Relaxed);
-                model = models::ImuModel::new(models::ImuNoise::default());
+                model = models::ImuModel::new(models::ImuNoise::default(), &mut rng);
                 state_tx.send(app::SimulationState {
                     sim_time_us: 0,
                     position: state.position.into(),
