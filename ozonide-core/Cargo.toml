@@ -15,3 +15,4 @@ serde  = { version = "1.0", default-features = false, features = ["derive"] }
 defmt  = { version = "0.3", optional = true }
 log    = { version = "0.4", optional = true, default-features = false }
 nalgebra = { version = "0.35.0", default-features = false, features = ["libm"] }
+libm     = "0.2"

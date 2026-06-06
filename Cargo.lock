@@ -1462,6 +1462,7 @@ dependencies = [
  "defmt 0.3.100",
  "embassy-sync",
  "embassy-time",
+ "libm",
  "log",
  "nalgebra",
  "serde",
