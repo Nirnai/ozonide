@@ -123,3 +123,163 @@ impl ImuModel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::physics::VehicleState;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    fn noise_only() -> ImuNoise {
+        ImuNoise {
+            accel_bias_std: 0.0,
+            accel_walk_std: 0.0,
+            gyro_bias_std: 0.0,
+            gyro_walk_std: 0.0,
+            ..ImuNoise::default()
+        }
+    }
+
+    fn bias_only() -> ImuNoise {
+        ImuNoise {
+            accel_noise_std: 0.0,
+            accel_walk_std: 0.0,
+            gyro_noise_std: 0.0,
+            gyro_walk_std: 0.0,
+            ..ImuNoise::default()
+        }
+    }
+
+    fn walk_only() -> ImuNoise {
+        ImuNoise {
+            accel_noise_std: 0.0,
+            accel_bias_std: 0.0,
+            gyro_noise_std: 0.0,
+            gyro_bias_std: 0.0,
+            ..ImuNoise::default()
+        }
+    }
+
+    fn collect_samples(n: usize, noise_parameters: ImuNoise, seed: u64) -> Vec<ImuData> {
+        let state = VehicleState::default();
+        let sampling_dt_us = 1000;
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut model = ImuModel::new(noise_parameters, &mut rng);
+        let mut samples = Vec::new();
+        for i in 0..n {
+            // Skip zero case for proper statistics
+            let sim_time_us = ((i + 1) * sampling_dt_us) as u64;
+            let sample = model.measure(&state, sim_time_us, &mut rng);
+            samples.push(sample);
+        }
+        samples
+    }
+
+    fn estimate_gaussian_parameters(samples: Vec<f32>) -> (f32, f32) {
+        let n = samples.len();
+        let mean = samples.iter().sum::<f32>() / n as f32;
+        let var = samples.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / n as f32;
+        let std = var.sqrt();
+        (mean, std)
+    }
+
+    #[test]
+    fn first_call_with_zero_dt_produces_valid_output() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut model = ImuModel::new(ImuNoise::default(), &mut rng);
+        let state = VehicleState::default();
+        let sample = model.measure(&state, 0, &mut rng); // sim_time_us == last_time_us == 0 → dt = 0
+        assert!(sample.linear_acceleration.iter().all(|v| v.is_finite()));
+        assert!(sample.angular_velocity.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn white_noise_std_dev_and_mean_match_parameters() {
+        let noise_parameters = ImuNoise::default();
+        let seed = 42;
+        let num_samples = 10000;
+        let mean_tolerance = 0.005;
+        let samples = collect_samples(num_samples, noise_only(), seed);
+        for axis in 0..3 {
+            let values: Vec<f32> = samples
+                .iter()
+                .map(|s| s.linear_acceleration[axis])
+                .collect();
+            let (mean, std) = estimate_gaussian_parameters(values);
+            let expected_mean = if axis == 2 { 9.806 } else { 0.0 };
+            assert!(
+                (mean - expected_mean).abs() < mean_tolerance,
+                "accel[{axis}] mean={mean}"
+            );
+            assert!(
+                (std - noise_parameters.accel_noise_std as f32).abs() < 0.015 * 0.10,
+                "accel[{axis}] std_dev={std}"
+            );
+        }
+    }
+
+    #[test]
+    fn bias_is_constant_and_drawn_from_correct_distribution() {
+        // Part 1: with no noise and no walk, every sample must equal the first.
+        let samples = collect_samples(100, bias_only(), 42);
+        for axis in 0..3 {
+            let reference = samples[0].linear_acceleration[axis];
+            for s in &samples {
+                assert_eq!(
+                    s.linear_acceleration[axis], reference,
+                    "accel[{axis}] changed between samples — bias is not constant"
+                );
+            }
+        }
+
+        // Part 2: across many model instances the bias values should be drawn
+        // from N(0, accel_bias_std). At rest with identity attitude,
+        // axis-X output = 0 + bias_x (no noise, no horizontal specific force).
+        let num_instances = 200;
+        let mut accel_biases: Vec<f32> = Vec::new();
+        let mut gyro_biases: Vec<f32> = Vec::new();
+        for seed in 0..num_instances as u64 {
+            let s = collect_samples(1, bias_only(), seed);
+            accel_biases.push(s[0].linear_acceleration[0]);
+            gyro_biases.push(s[0].angular_velocity[0]);
+        }
+        let (_, accel_std) = estimate_gaussian_parameters(accel_biases);
+        let (_, gyro_std) = estimate_gaussian_parameters(gyro_biases);
+
+        let target_accel = ImuNoise::default().accel_bias_std as f32;
+        let target_gyro = ImuNoise::default().gyro_bias_std as f32;
+        assert!(
+            (accel_std - target_accel).abs() < target_accel * 0.20,
+            "accel bias std={accel_std}, expected≈{target_accel}"
+        );
+        assert!(
+            (gyro_std - target_gyro).abs() < target_gyro * 0.20,
+            "gyro bias std={gyro_std}, expected≈{target_gyro}"
+        );
+    }
+
+    #[test]
+    fn random_walk_variance_grows_linearly_with_time() {
+        // With walk_only: initial bias = 0, no white noise.
+        // accel[0] output = 0 + accumulated_walk_x.
+        // Walk variance after t seconds = σ_walk² × t, so var(10s)/var(1s) ≈ 10.
+        let num_instances = 200;
+        let mut vals_1s: Vec<f32> = Vec::new();
+        let mut vals_10s: Vec<f32> = Vec::new();
+        for seed in 0..num_instances as u64 {
+            let samples = collect_samples(10_000, walk_only(), seed);
+            vals_1s.push(samples[999].linear_acceleration[0]);    // index 999 → t = 1 s
+            vals_10s.push(samples[9_999].linear_acceleration[0]); // index 9999 → t = 10 s
+        }
+        let variance_ratio = {
+            let (_, std_1s) = estimate_gaussian_parameters(vals_1s);
+            let (_, std_10s) = estimate_gaussian_parameters(vals_10s);
+            (std_10s / std_1s).powi(2)
+        };
+        assert!(
+            (variance_ratio - 10.0).abs() < 10.0 * 0.30,
+            "variance ratio={variance_ratio}, expected≈10"
+        );
+    }
+}

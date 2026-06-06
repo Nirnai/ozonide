@@ -15,7 +15,6 @@
         "ZixuanWang.linkerscript"
       ],
       "settings": {
-        "rust-analyzer.checkOnSave.allTargets": false,
         "rust-analyzer.cargo.target": "thumbv7em-none-eabihf",
         "rust-analyzer.check.allTargets": false
       }
