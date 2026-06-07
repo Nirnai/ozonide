@@ -1,9 +1,8 @@
 use nalgebra::{Quaternion, UnitQuaternion};
 
-use crate::{
-    control::cascaded_pid::{PidController, PidGains},
-    msgs::{AttitudeSetpoint, VehicleState},
-};
+use crate::msgs::{AngularVelocitySetpoint, AttitudeSetpoint, VehicleState};
+
+use super::{Pid, PidGains};
 
 /// Extract (roll, pitch) Euler angles from a `VehicleState` attitude quaternion.
 fn roll_pitch(state: &VehicleState) -> (f32, f32) {
@@ -19,19 +18,19 @@ fn roll_pitch(state: &VehicleState) -> (f32, f32) {
 /// pitch are tuned here. Yaw is commanded as a rate directly by the pilot or
 /// a higher-level controller and passes through unchanged.
 #[derive(Clone, Copy)]
-pub struct AnglePidGains {
-    pub roll: PidGains,
-    pub pitch: PidGains,
+pub struct AttitudeGains {
+    pub roll_angle_control_gains: PidGains,
+    pub pitch_angle_control_gains: PidGains,
 }
 
 /// Outer-loop angle controller.
 ///
 /// Computes angular rate setpoints from attitude angle errors. This is the outer
 /// loop of a cascaded attitude controller — its outputs feed directly into
-/// [`RatePidController`](crate::control::RatePidController) as setpoints:
+/// [`AngularVelocityController`](crate::control::AngularVelocityController) as setpoints:
 ///
 /// ```text
-/// AttitudeSetpoint → AnglePidController → RateSetpoint → RatePidController → corrections → mixer
+/// AttitudeSetpoint → AttitudeController → AngularVelocitySetpoint → AngularVelocityController → corrections → mixer
 ///                           ↑
 ///                      (this struct)
 /// ```
@@ -46,7 +45,7 @@ pub struct AnglePidGains {
 /// ```
 ///
 /// The output `rate_setpoint` is in rad/s and is bounded by `output_limit` in
-/// [`AnglePidGains`]. A typical value is `π/2` rad/s (90°/s) to prevent the
+/// [`AttitudeGains`]. A typical value is `π/2` rad/s (90°/s) to prevent the
 /// inner rate loop from being commanded beyond its authority.
 ///
 /// ## Yaw pass-through
@@ -63,25 +62,12 @@ pub struct AnglePidGains {
 /// the D term in the outer loop would be redundant and amplifies noise. Include
 /// it only if the angle response is underdamped with kd = 0.
 #[derive(Default)]
-pub struct AnglePidController {
-    roll: PidController,
-    pitch: PidController,
+pub struct AttitudeController {
+    roll_angle_controller: Pid,
+    pitch_angle_controller: Pid,
 }
 
-/// Angular rate setpoints produced by the angle PID.
-///
-/// Feeds directly into [`RatePidController::update`](crate::control::RatePidController::update)
-/// as the `roll_rate_setpoint`, `pitch_rate_setpoint`, and `yaw_rate_setpoint` arguments.
-pub struct RateSetpoint {
-    /// Desired roll rate (rad/s).
-    pub roll_rate: f32,
-    /// Desired pitch rate (rad/s).
-    pub pitch_rate: f32,
-    /// Desired yaw rate (rad/s). Passed through from [`AttitudeSetpoint::yaw_rate`] unchanged.
-    pub yaw_rate: f32,
-}
-
-impl AnglePidController {
+impl AttitudeController {
     /// Advances the roll and pitch angle loops by one time step and returns rate setpoints.
     ///
     /// # Arguments
@@ -91,18 +77,18 @@ impl AnglePidController {
     /// * `dt`       — time elapsed since the previous call (s); returns zero setpoints if ≤ 0
     pub fn update(
         &mut self,
-        setpoint: &AttitudeSetpoint,
         state: &VehicleState,
-        gains: &AnglePidGains,
+        setpoint: &AttitudeSetpoint,
+        gains: &AttitudeGains,
         dt: f32,
-    ) -> RateSetpoint {
+    ) -> AngularVelocitySetpoint {
         let (roll, pitch) = roll_pitch(state);
         let roll_error  = setpoint.roll  - roll;
         let pitch_error = setpoint.pitch - pitch;
 
-        RateSetpoint {
-            roll_rate: self.roll.update(roll_error, &gains.roll, dt),
-            pitch_rate: self.pitch.update(pitch_error, &gains.pitch, dt),
+        AngularVelocitySetpoint {
+            roll_rate: self.roll_angle_controller.update(roll_error, &gains.roll_angle_control_gains, dt),
+            pitch_rate: self.pitch_angle_controller.update(pitch_error, &gains.pitch_angle_control_gains, dt),
             yaw_rate: setpoint.yaw_rate,
         }
     }
@@ -112,8 +98,8 @@ impl AnglePidController {
     /// Call this on arming or mode transitions to prevent stale integral
     /// wind-up from affecting the first active control output.
     pub fn reset(&mut self) {
-        self.roll = PidController::default();
-        self.pitch = PidController::default();
+        self.roll_angle_controller = Pid::default();
+        self.pitch_angle_controller = Pid::default();
     }
 }
 
@@ -131,8 +117,8 @@ mod tests {
         PidGains { kp, ki: 0.0, kd: 0.0, integral_limit: 0.0, output_limit: f32::MAX }
     }
 
-    fn uniform_gains(kp: f32) -> AnglePidGains {
-        AnglePidGains { roll: p_gains(kp), pitch: p_gains(kp) }
+    fn uniform_gains(kp: f32) -> AttitudeGains {
+        AttitudeGains { roll_angle_control_gains: p_gains(kp), pitch_angle_control_gains: p_gains(kp) }
     }
 
     fn setpoint(roll: f32, pitch: f32, yaw_rate: f32) -> AttitudeSetpoint {
@@ -147,20 +133,20 @@ mod tests {
 
     #[test]
     fn zero_error_produces_zero_rate_setpoints() {
-        let mut ctrl = AnglePidController::default();
+        let mut ctrl = AttitudeController::default();
         let gains = uniform_gains(5.0);
         // Setpoint matches estimate → error = 0 → rate setpoints = 0.
-        let out = ctrl.update(&setpoint(0.3, -0.2, 0.1), &state_at(0.3, -0.2), &gains, 0.01);
+        let out = ctrl.update(&state_at(0.3, -0.2), &setpoint(0.3, -0.2, 0.1), &gains, 0.01);
         assert_approx(out.roll_rate, 0.0);
         assert_approx(out.pitch_rate, 0.0);
     }
 
     #[test]
     fn proportional_rate_setpoint_scales_with_error() {
-        let mut ctrl = AnglePidController::default();
+        let mut ctrl = AttitudeController::default();
         let gains = uniform_gains(3.0);
         // Estimate at zero; setpoints give known errors.
-        let out = ctrl.update(&setpoint(0.2, -0.1, 0.0), &state_at(0.0, 0.0), &gains, 0.01);
+        let out = ctrl.update(&state_at(0.0, 0.0), &setpoint(0.2, -0.1, 0.0), &gains, 0.01);
         assert_approx(out.roll_rate,  3.0 *  0.2);
         assert_approx(out.pitch_rate, 3.0 * -0.1);
     }
@@ -168,56 +154,56 @@ mod tests {
     #[test]
     fn axes_are_independent() {
         // Error on roll only; pitch rate setpoint must be zero.
-        let mut ctrl = AnglePidController::default();
-        let gains = AnglePidGains { roll: p_gains(4.0), pitch: p_gains(0.0) };
-        let out = ctrl.update(&setpoint(1.0, 0.5, 0.0), &state_at(0.0, 0.0), &gains, 0.01);
+        let mut ctrl = AttitudeController::default();
+        let gains = AttitudeGains { roll_angle_control_gains: p_gains(4.0), pitch_angle_control_gains: p_gains(0.0) };
+        let out = ctrl.update(&state_at(0.0, 0.0), &setpoint(1.0, 0.5, 0.0), &gains, 0.01);
         assert_approx(out.roll_rate,  4.0);
         assert_approx(out.pitch_rate, 0.0);
     }
 
     #[test]
     fn yaw_rate_is_passed_through_unchanged() {
-        let mut ctrl = AnglePidController::default();
+        let mut ctrl = AttitudeController::default();
         let gains = uniform_gains(1.0);
-        let out = ctrl.update(&setpoint(0.0, 0.0, 0.75), &state_at(0.0, 0.0), &gains, 0.01);
+        let out = ctrl.update(&state_at(0.0, 0.0), &setpoint(0.0, 0.0, 0.75), &gains, 0.01);
         assert_approx(out.yaw_rate, 0.75);
     }
 
     #[test]
     fn zero_dt_returns_zero_rate_setpoints() {
-        let mut ctrl = AnglePidController::default();
+        let mut ctrl = AttitudeController::default();
         let gains = uniform_gains(10.0);
-        let out = ctrl.update(&setpoint(1.0, 1.0, 0.0), &state_at(0.0, 0.0), &gains, 0.0);
+        let out = ctrl.update(&state_at(0.0, 0.0), &setpoint(1.0, 1.0, 0.0), &gains, 0.0);
         assert_approx(out.roll_rate, 0.0);
         assert_approx(out.pitch_rate, 0.0);
     }
 
     #[test]
     fn output_limit_caps_rate_setpoint() {
-        let mut ctrl = AnglePidController::default();
+        let mut ctrl = AttitudeController::default();
         // kp=10, error=1 → unbounded output = 10 rad/s; limit to π/2 ≈ 1.5708.
         let limit = core::f32::consts::FRAC_PI_2;
-        let gains = AnglePidGains {
-            roll:  PidGains { kp: 10.0, ki: 0.0, kd: 0.0, integral_limit: 0.0, output_limit: limit },
-            pitch: PidGains { kp: 10.0, ki: 0.0, kd: 0.0, integral_limit: 0.0, output_limit: limit },
+        let gains = AttitudeGains {
+            roll_angle_control_gains:  PidGains { kp: 10.0, ki: 0.0, kd: 0.0, integral_limit: 0.0, output_limit: limit },
+            pitch_angle_control_gains: PidGains { kp: 10.0, ki: 0.0, kd: 0.0, integral_limit: 0.0, output_limit: limit },
         };
-        let out = ctrl.update(&setpoint(1.0, -1.0, 0.0), &state_at(0.0, 0.0), &gains, 0.01);
+        let out = ctrl.update(&state_at(0.0, 0.0), &setpoint(1.0, -1.0, 0.0), &gains, 0.01);
         assert_approx(out.roll_rate,   limit);
         assert_approx(out.pitch_rate, -limit);
     }
 
     #[test]
     fn reset_clears_integrator() {
-        let mut ctrl = AnglePidController::default();
-        let gains = AnglePidGains {
-            roll:  PidGains { kp: 0.0, ki: 1.0, kd: 0.0, integral_limit: 10.0, output_limit: f32::MAX },
-            pitch: PidGains { kp: 0.0, ki: 1.0, kd: 0.0, integral_limit: 10.0, output_limit: f32::MAX },
+        let mut ctrl = AttitudeController::default();
+        let gains = AttitudeGains {
+            roll_angle_control_gains:  PidGains { kp: 0.0, ki: 1.0, kd: 0.0, integral_limit: 10.0, output_limit: f32::MAX },
+            pitch_angle_control_gains: PidGains { kp: 0.0, ki: 1.0, kd: 0.0, integral_limit: 10.0, output_limit: f32::MAX },
         };
         for _ in 0..5 {
-            ctrl.update(&setpoint(1.0, 1.0, 0.0), &state_at(0.0, 0.0), &gains, 0.1);
+            ctrl.update(&state_at(0.0, 0.0), &setpoint(1.0, 1.0, 0.0), &gains, 0.1);
         }
         ctrl.reset();
-        let out = ctrl.update(&setpoint(0.0, 0.0, 0.0), &state_at(0.0, 0.0), &gains, 0.1);
+        let out = ctrl.update(&state_at(0.0, 0.0), &setpoint(0.0, 0.0, 0.0),  &gains, 0.1);
         assert_approx(out.roll_rate, 0.0);
         assert_approx(out.pitch_rate, 0.0);
     }

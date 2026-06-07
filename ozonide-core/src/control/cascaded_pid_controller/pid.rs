@@ -1,6 +1,6 @@
 /// Proportional, integral, and derivative gains for a single PID axis.
 ///
-/// Gains are passed into [`PidController::update`] each call, keeping the
+/// Gains are passed into [`Pid::update`] each call, keeping the
 /// controller state decoupled from the gain values. This allows a gain
 /// scheduler or parameter store to change gains at runtime without
 /// resetting the integrator.
@@ -46,14 +46,14 @@ pub struct PidGains {
 /// The integrator is clamped to `[-integral_limit, +integral_limit]` after
 /// each update to prevent windup when the actuator saturates.
 #[derive(Default)]
-pub struct PidController {
+pub struct Pid {
     /// Accumulated integral term (output units).
     integrator_state: f32,
     /// Error from the previous call, used to compute the derivative term.
     previous_error: f32,
 }
 
-impl PidController {
+impl Pid {
     /// Advances the controller by one time step and returns the control output.
     ///
     /// # Arguments
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn zero_dt_returns_zero_and_does_not_update_state() {
-        let mut pid = PidController::default();
+        let mut pid = Pid::default();
         let gains = PidGains { kp: 1.0, ki: 1.0, kd: 1.0, integral_limit: 10.0, output_limit: f32::MAX };
         let output = pid.update(5.0, &gains, 0.0);
         assert_approx(output, 0.0);
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn proportional_output_scales_with_error() {
-        let mut pid = PidController::default();
+        let mut pid = Pid::default();
         assert_approx(pid.update(3.0, &p_only(2.0), 0.1), 6.0);
         assert_approx(pid.update(-2.0, &p_only(2.0), 0.1), -4.0);
     }
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn integral_accumulates_over_time() {
         // ki=1, error=1, dt=0.1 → each step adds 0.1 to integrator.
-        let mut pid = PidController::default();
+        let mut pid = Pid::default();
         let gains = i_only(1.0, 10.0);
         assert_approx(pid.update(1.0, &gains, 0.1), 0.1);
         assert_approx(pid.update(1.0, &gains, 0.1), 0.2);
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn integral_is_clamped_by_limit() {
         // integral_limit=0.5: integrator must never exceed ±0.5 regardless of steps.
-        let mut pid = PidController::default();
+        let mut pid = Pid::default();
         let gains = i_only(1.0, 0.5);
         for _ in 0..20 {
             pid.update(1.0, &gains, 0.1);
@@ -139,7 +139,7 @@ mod tests {
     fn derivative_responds_to_rate_of_change() {
         // First call: previous_error=0, error=1, dt=0.1 → D = kd*(1−0)/0.1 = 10.
         // Second call: error unchanged → D = kd*(1−1)/0.1 = 0.
-        let mut pid = PidController::default();
+        let mut pid = Pid::default();
         let gains = d_only(1.0);
         assert_approx(pid.update(1.0, &gains, 0.1), 10.0);
         assert_approx(pid.update(1.0, &gains, 0.1), 0.0);
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn output_is_clamped_by_output_limit() {
         // kp=10, error=1 → P=10, but output_limit=5 → output must be clamped to 5.
-        let mut pid = PidController::default();
+        let mut pid = Pid::default();
         let gains = PidGains { kp: 10.0, ki: 0.0, kd: 0.0, integral_limit: 0.0, output_limit: 5.0 };
         assert_approx(pid.update(1.0, &gains, 0.1), 5.0);
         assert_approx(pid.update(-1.0, &gains, 0.1), -5.0);
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn zero_error_produces_zero_output() {
-        let mut pid = PidController::default();
+        let mut pid = Pid::default();
         let gains = PidGains { kp: 5.0, ki: 2.0, kd: 1.0, integral_limit: 10.0, output_limit: f32::MAX };
         assert_approx(pid.update(0.0, &gains, 0.1), 0.0);
     }

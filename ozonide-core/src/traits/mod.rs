@@ -13,4 +13,4 @@ mod actuator_sink;
 pub use imu_source::ImuSource;
 pub use actuator_sink::ActuatorSink;
 pub use state_estimator::{StateEstimator, SensorData};
-pub use controller::AttitudeController;
+pub use controller::Controller;

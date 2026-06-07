@@ -1,5 +1,53 @@
 # ozonide
 
+## Running & Testing
+
+The workspace default build target is `thumbv7em-none-eabihf` (embedded). SITL, simulator, and tests must be run with an explicit host target.
+
+### Tests
+
+```bash
+# All testable crates (ozonide-core, sitl, simulator)
+cargo test --target x86_64-unknown-linux-gnu
+
+# Single crate
+cargo test -p ozonide-core --target x86_64-unknown-linux-gnu
+cargo test -p simulator    --target x86_64-unknown-linux-gnu
+cargo test -p sitl         --target x86_64-unknown-linux-gnu
+```
+
+### Simulator (physics engine + WebSocket frontend)
+
+```bash
+cargo run -p simulator --target x86_64-unknown-linux-gnu
+```
+
+### SITL (software-in-the-loop flight controller)
+
+Run together with the simulator — simulator on one terminal, SITL on another:
+
+```bash
+# Terminal 1
+cargo run -p simulator --target x86_64-unknown-linux-gnu
+
+# Terminal 2
+cargo run -p sitl --target x86_64-unknown-linux-gnu
+```
+
+### Firmware (STM32H743, requires probe-rs and a connected debugger)
+
+```bash
+cargo run -p firmware
+# or explicitly:
+cargo run -p firmware --target thumbv7em-none-eabihf
+```
+
+Flash without running:
+```bash
+cargo build -p firmware --release
+probe-rs download --chip STM32H743VITx target/thumbv7em-none-eabihf/release/firmware
+```
+
 Ozonide is a Rust-based flight controller stack targeting STM32H7-class MCUs.  The current focus is on: 
 - Sensor drivers (e.g. IMUs, barometers, magnetometers) 
 - Actuator outputs for multirotors (e.g. PWM, DShot)
