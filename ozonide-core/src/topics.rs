@@ -27,7 +27,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{self, Watch};
 
-use crate::msgs::{ActuatorCommand, ImuData, VehicleState};
+use crate::msgs::{ActuatorCommand, ControlDemand, ImuData, VehicleState};
 
 /// Global IMU topic. Published by [`crate::tasks::imu_task`] at the
 /// configured ODR (default 1 kHz). Supports one tracked subscriber.
@@ -38,7 +38,12 @@ pub static IMU_TOPIC: Topic<ImuData, 1> = Topic::new();
 /// default to zero — see [`VehicleState`] for which fields are populated.
 pub static VEHICLE_STATE_TOPIC: Topic<VehicleState, 1> = Topic::new();
 
-/// Global actuator topic. Published by the flight controller at IMU rate.
+/// Global control demand topic. Published by the control task. Consumed by the
+/// actuator task, which applies authority limiting and motor mixing before
+/// writing to the transport layer.
+pub static CONTROL_DEMAND_TOPIC: Topic<ControlDemand, 1> = Topic::new();
+
+/// Global actuator topic. Published by the actuator task after allocation.
 /// Consumed by the transport layer (UDP in SITL, PWM/DSHOT in firmware).
 pub static ACTUATOR_TOPIC: Topic<ActuatorCommand, 1> = Topic::new();
 

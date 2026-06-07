@@ -1,5 +1,4 @@
-use crate::msgs::VehicleState;
-use crate::control::ControlDemand;
+use crate::msgs::{ControlDemand, VehicleState};
 
 pub trait Controller {
     type Setpoint;

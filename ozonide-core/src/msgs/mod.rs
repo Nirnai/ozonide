@@ -5,11 +5,13 @@
 //! serialisation (UDP, WebSocket) in the SITL pipeline.
 
 mod actuator_command;
+mod control_demand;
 mod imu_data;
 mod setpoints;
 mod vehicle_state;
 
 pub use actuator_command::ActuatorCommand;
+pub use control_demand::ControlDemand;
 pub use imu_data::ImuData;
 pub use setpoints::{AngularVelocitySetpoint, AttitudeSetpoint, TorqueSetpoint};
 pub use vehicle_state::VehicleState;

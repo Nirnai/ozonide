@@ -1,5 +1,5 @@
 use nalgebra::{Matrix4, Vector4};
-
+use crate::msgs::ActuatorCommand;
 use super::ControlDemand;
 
 /// Maps normalised virtual commands to per-motor throttle for an X-configuration quadrotor.
@@ -32,7 +32,7 @@ use super::ControlDemand;
 /// Per-motor throttle `[FR, RL, FL, RR]` clamped to `[0, 1]`. Clamping is applied
 /// independently per motor; no priority scaling is performed here — see
 /// `authority` for saturation handling before this function is called.
-pub fn allocate_control(control_demand: ControlDemand) -> Vector4<f32> {
+pub fn allocate_control(control_demand: &ControlDemand) -> ActuatorCommand {
     const MIXING_MATRIX: Matrix4<f32> = Matrix4::new(
         1.0, -1.0, -1.0, 1.0, // row 0: FR [thrust, roll, pitch, yaw]
         1.0, 1.0, 1.0, 1.0, // row 1: RL
@@ -45,19 +45,20 @@ pub fn allocate_control(control_demand: ControlDemand) -> Vector4<f32> {
         control_demand.pitch_torque,
         control_demand.yaw_torque,
     );
-    (MIXING_MATRIX * input).map(|x| x.clamp(0.0, 1.0))
+    let output = (MIXING_MATRIX * input).map(|x| x.clamp(0.0, 1.0));
+    ActuatorCommand { motor_throttle: [output[0], output[1], output[2], output[3]] }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn assert_motors_approx(result: Vector4<f32>, expected: [f32; 4]) {
+    fn assert_motors_approx(result: ActuatorCommand, expected: [f32; 4]) {
         for i in 0..4 {
             assert!(
-                (result[i] - expected[i]).abs() < 1e-5,
+                (result.motor_throttle[i] - expected[i]).abs() < 1e-5,
                 "motor[{i}]: got {}, expected {}",
-                result[i],
+                result.motor_throttle[i],
                 expected[i]
             );
         }
@@ -69,35 +70,35 @@ mod tests {
 
     #[test]
     fn pure_thrust_sets_all_motors_equally() {
-        assert_motors_approx(allocate_control(demand(0.5, 0.0, 0.0, 0.0)), [0.5, 0.5, 0.5, 0.5]);
+        assert_motors_approx(allocate_control(&demand(0.5, 0.0, 0.0, 0.0)), [0.5, 0.5, 0.5, 0.5]);
     }
 
     #[test]
     fn roll_right_increases_left_motors_decreases_right() {
         // Positive roll = roll right → left motors (RL, FL) faster, right motors (FR, RR) slower.
-        assert_motors_approx(allocate_control(demand(0.5, 0.1, 0.0, 0.0)), [0.4, 0.6, 0.6, 0.4]);
+        assert_motors_approx(allocate_control(&demand(0.5, 0.1, 0.0, 0.0)), [0.4, 0.6, 0.6, 0.4]);
     }
 
     #[test]
     fn pitch_forward_increases_rear_motors_decreases_front() {
         // Positive pitch = pitch forward → rear motors (RL, RR) faster, front motors (FR, FL) slower.
-        assert_motors_approx(allocate_control(demand(0.5, 0.0, 0.1, 0.0)), [0.4, 0.6, 0.4, 0.6]);
+        assert_motors_approx(allocate_control(&demand(0.5, 0.0, 0.1, 0.0)), [0.4, 0.6, 0.4, 0.6]);
     }
 
     #[test]
     fn yaw_ccw_increases_cw_motors_decreases_ccw() {
         // Positive yaw = CCW from above → CW motors (FR, RL) faster, CCW motors (FL, RR) slower.
-        assert_motors_approx(allocate_control(demand(0.5, 0.0, 0.0, 0.1)), [0.6, 0.6, 0.4, 0.4]);
+        assert_motors_approx(allocate_control(&demand(0.5, 0.0, 0.0, 0.1)), [0.6, 0.6, 0.4, 0.4]);
     }
 
     #[test]
     fn zero_inputs_produce_zero_throttle() {
-        assert_motors_approx(allocate_control(demand(0.0, 0.0, 0.0, 0.0)), [0.0, 0.0, 0.0, 0.0]);
+        assert_motors_approx(allocate_control(&demand(0.0, 0.0, 0.0, 0.0)), [0.0, 0.0, 0.0, 0.0]);
     }
 
     #[test]
     fn saturated_output_is_clamped_to_unit_range() {
         // Large roll correction would push FR/RR below 0 and RL/FL above 1.
-        assert_motors_approx(allocate_control(demand(0.5, 0.6, 0.0, 0.0)), [0.0, 1.0, 1.0, 0.0]);
+        assert_motors_approx(allocate_control(&demand(0.5, 0.6, 0.0, 0.0)), [0.0, 1.0, 1.0, 0.0]);
     }
 }

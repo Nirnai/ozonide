@@ -1,6 +1,5 @@
 use crate::{
-    control::ControlDemand,
-    msgs::{AttitudeSetpoint, VehicleState},
+    msgs::{AttitudeSetpoint, ControlDemand, VehicleState},
     traits::Controller,
 };
 
