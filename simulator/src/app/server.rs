@@ -21,14 +21,18 @@ use tokio::sync::watch;
 /// Vehicle state broadcast to WebSocket clients at 60 Hz.
 #[derive(Clone, Serialize)]
 pub struct SimulationState {
-    /// Simulation time in microseconds since the last reset.
     pub sim_time_us: u64,
-    /// Position in the ENU world frame (m).
     pub position: [f64; 3],
-    /// Velocity in the ENU world frame (m/s).
     pub velocity: [f64; 3],
-    /// Unit quaternion \[x, y, z, w\] representing the body → world rotation.
     pub quaternion: [f64; 4],
+    /// Truth body-frame angular velocity (rad/s) — ideal gyro reading with no noise.
+    pub angular_velocity: [f64; 3],
+    /// Truth body-frame specific force (m/s²) — ideal accelerometer reading with no noise.
+    pub specific_force: [f64; 3],
+    /// Noisy gyro output sent to the SITL.
+    pub imu_gyro: [f32; 3],
+    /// Noisy accelerometer output sent to the SITL.
+    pub imu_accel: [f32; 3],
 }
 
 #[derive(Clone)]
@@ -38,6 +42,9 @@ struct AppState {
     reset_requested: Arc<AtomicBool>,
     realtime: Arc<AtomicBool>,
     disturbance_mode: Arc<AtomicU8>,
+    noise_white: Arc<AtomicBool>,
+    noise_bias: Arc<AtomicBool>,
+    noise_walk: Arc<AtomicBool>,
 }
 
 static FRONTEND: &str = include_str!("index.html");
@@ -48,6 +55,7 @@ static FRONTEND: &str = include_str!("index.html");
 /// Communication with the physics loop uses shared atomics:
 /// - `paused` / `reset_requested` / `realtime` — boolean control flags
 /// - `disturbance_mode` — `0` = Gaussian, `1` = OU wind, `2` = no disturbance
+/// - `noise_white` / `noise_bias` / `noise_walk` — individual IMU noise component toggles
 /// - `rx` — watch channel carrying the latest [`SimulationState`] from the physics loop
 pub async fn serve(
     rx: watch::Receiver<SimulationState>,
@@ -55,8 +63,14 @@ pub async fn serve(
     reset_requested: Arc<AtomicBool>,
     realtime: Arc<AtomicBool>,
     disturbance_mode: Arc<AtomicU8>,
+    noise_white: Arc<AtomicBool>,
+    noise_bias: Arc<AtomicBool>,
+    noise_walk: Arc<AtomicBool>,
 ) {
-    let shared = AppState { state_rx: rx, paused, reset_requested, realtime, disturbance_mode };
+    let shared = AppState {
+        state_rx: rx, paused, reset_requested, realtime, disturbance_mode,
+        noise_white, noise_bias, noise_walk,
+    };
 
     let app = Router::new()
         .route("/", get(|| async { Html(FRONTEND) }))
@@ -69,6 +83,14 @@ pub async fn serve(
         .route("/disturbance/gaussian", get(disturbance_gaussian_handler))
         .route("/disturbance/ou", get(disturbance_ou_handler))
         .route("/disturbance/none", get(disturbance_none_handler))
+        .route("/noise/on",         get(noise_all_on_handler))
+        .route("/noise/off",        get(noise_all_off_handler))
+        .route("/noise/white/on",   get(noise_white_on_handler))
+        .route("/noise/white/off",  get(noise_white_off_handler))
+        .route("/noise/bias/on",    get(noise_bias_on_handler))
+        .route("/noise/bias/off",   get(noise_bias_off_handler))
+        .route("/noise/walk/on",    get(noise_walk_on_handler))
+        .route("/noise/walk/off",   get(noise_walk_off_handler))
         .with_state(shared);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:9001").await.unwrap();
@@ -112,6 +134,25 @@ async fn disturbance_ou_handler(State(s): State<AppState>) {
 async fn disturbance_none_handler(State(s): State<AppState>) {
     s.disturbance_mode.store(2, Ordering::Relaxed);
 }
+
+async fn noise_all_on_handler(State(s): State<AppState>) {
+    s.noise_white.store(true, Ordering::Relaxed);
+    s.noise_bias.store(true, Ordering::Relaxed);
+    s.noise_walk.store(true, Ordering::Relaxed);
+}
+
+async fn noise_all_off_handler(State(s): State<AppState>) {
+    s.noise_white.store(false, Ordering::Relaxed);
+    s.noise_bias.store(false, Ordering::Relaxed);
+    s.noise_walk.store(false, Ordering::Relaxed);
+}
+
+async fn noise_white_on_handler(State(s): State<AppState>)  { s.noise_white.store(true,  Ordering::Relaxed); }
+async fn noise_white_off_handler(State(s): State<AppState>) { s.noise_white.store(false, Ordering::Relaxed); }
+async fn noise_bias_on_handler(State(s): State<AppState>)   { s.noise_bias.store(true,   Ordering::Relaxed); }
+async fn noise_bias_off_handler(State(s): State<AppState>)  { s.noise_bias.store(false,  Ordering::Relaxed); }
+async fn noise_walk_on_handler(State(s): State<AppState>)   { s.noise_walk.store(true,   Ordering::Relaxed); }
+async fn noise_walk_off_handler(State(s): State<AppState>)  { s.noise_walk.store(false,  Ordering::Relaxed); }
 
 async fn client_loop(mut socket: WebSocket, rx: watch::Receiver<SimulationState>) {
     let mut ticker = tokio::time::interval(Duration::from_micros(16_667)); // 60 Hz

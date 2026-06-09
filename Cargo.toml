@@ -1,5 +1,5 @@
 [workspace]
-members = ["firmware", "ozonide-core", "sitl", "simulator"]
+members = ["firmware", "ozonide-core", "sitl", "simulator", "tools/open-loop-commander"]
 default-members = ["ozonide-core", "sitl", "simulator"]
 resolver = "2"
 

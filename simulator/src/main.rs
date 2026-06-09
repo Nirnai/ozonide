@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use models::DisturbanceType;
 use ozonide_core::msgs::{ActuatorCommand, ImuData};
+use nalgebra::Vector3;
 
 /// Returns `(throttle_norm, omega_hover_rad_s)` for level hover.
 fn hover_throttle(mass: f64, actuator_model: &models::ActuatorModel) -> (f32, f64) {
@@ -41,11 +42,14 @@ async fn main() {
         motor_throttle: [throttle_hover; 4],
     }));
 
-    // Simulation control flags — starts paused, full speed.
+    // Simulation control flags — starts paused, real-time speed, no disturbance, all noise on.
     let paused = Arc::new(AtomicBool::new(true));
     let reset_requested = Arc::new(AtomicBool::new(false));
-    let realtime = Arc::new(AtomicBool::new(false));
-    let disturbance_mode = Arc::new(AtomicU8::new(0));
+    let realtime = Arc::new(AtomicBool::new(true));
+    let disturbance_mode = Arc::new(AtomicU8::new(2));
+    let noise_white = Arc::new(AtomicBool::new(true));
+    let noise_bias  = Arc::new(AtomicBool::new(true));
+    let noise_walk  = Arc::new(AtomicBool::new(true));
 
     // Watch channel: physics loop writes SimState, WebSocket clients read it.
     let initial_state = make_initial_state(omega_hover);
@@ -54,6 +58,10 @@ async fn main() {
         position: initial_state.position.into(),
         velocity: initial_state.linear_velocity.into(),
         quaternion: initial_state.attitude.coords.into(),
+        angular_velocity: [0.0; 3],
+        specific_force: [0.0, 0.0, physics::GRAVITATIONAL_CONSTANT],
+        imu_gyro: [0.0; 3],
+        imu_accel: [0.0; 3],
     });
 
     // Actuator UDP receiver.
@@ -78,6 +86,9 @@ async fn main() {
         Arc::clone(&reset_requested),
         Arc::clone(&realtime),
         Arc::clone(&disturbance_mode),
+        Arc::clone(&noise_white),
+        Arc::clone(&noise_bias),
+        Arc::clone(&noise_walk),
     ));
 
     // Physics + IMU loop on a dedicated OS thread.
@@ -87,6 +98,9 @@ async fn main() {
         .expect("connect to SITL");
 
     let actuator_physics = Arc::clone(&actuator_commands);
+    let noise_white_flag = Arc::clone(&noise_white);
+    let noise_bias_flag  = Arc::clone(&noise_bias);
+    let noise_walk_flag  = Arc::clone(&noise_walk);
     tokio::task::spawn_blocking(move || {
         let mut rng = rand::rng();
         let mut state = make_initial_state(omega_hover);
@@ -127,6 +141,10 @@ async fn main() {
                         position: state.position.into(),
                         velocity: state.linear_velocity.into(),
                         quaternion: state.attitude.coords.into(),
+                        angular_velocity: [0.0; 3],
+                        specific_force: [0.0, 0.0, physics::GRAVITATIONAL_CONSTANT],
+                        imu_gyro: [0.0; 3],
+                        imu_accel: [0.0; 3],
                     })
                     .ok();
             }
@@ -171,10 +189,17 @@ async fn main() {
             step_count += 1;
 
             if step_count % PHYS_STEPS_PER_IMU == 0 {
+                model.white_noise_enabled = noise_white_flag.load(Ordering::Relaxed);
+                model.bias_enabled        = noise_bias_flag.load(Ordering::Relaxed);
+                model.walk_enabled        = noise_walk_flag.load(Ordering::Relaxed);
                 let sample: ImuData = model.measure(&state, &state_dot, sim_time_us, &mut rng);
                 if let Ok(n) = postcard::to_slice(&sample, &mut buf) {
                     sitl_sock.send(n).ok();
                 }
+
+                let sf_world = state_dot.linear_acceleration
+                    + Vector3::new(0.0, 0.0, physics::GRAVITATIONAL_CONSTANT);
+                let sf_body = state.attitude.inverse_transform_vector(&sf_world);
 
                 state_tx
                     .send(app::SimulationState {
@@ -182,6 +207,10 @@ async fn main() {
                         position: state.position.into(),
                         velocity: state.linear_velocity.into(),
                         quaternion: state.attitude.coords.into(),
+                        angular_velocity: state.angular_velocity.into(),
+                        specific_force: sf_body.into(),
+                        imu_gyro: sample.angular_velocity,
+                        imu_accel: sample.linear_acceleration,
                     })
                     .ok();
             }

@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ozonide SITL</title>
 
-  <!-- Browser pulls Three.js from CDN — no npm, no build step. -->
   <script type="importmap">
   {
     "imports": {
@@ -19,17 +18,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { overflow: hidden; background: #0d1117; }
 
-    #hud {
-      position: fixed; top: 16px; left: 16px;
-      color: #79c0ff;
-      font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.9;
-      background: rgba(13, 17, 23, 0.80);
-      padding: 10px 14px; border-radius: 6px; border: 1px solid #30363d;
-      pointer-events: none; min-width: 230px;
-    }
-    .label { color: #8b949e; }
-    .value { color: #e6edf3; }
-
+    /* ── Connection status ───────────────────────────────── */
     #status {
       position: fixed; top: 16px; right: 16px;
       font-family: 'Courier New', monospace; font-size: 12px;
@@ -38,37 +27,143 @@
     #status.connected    { background:#1a4731; color:#3fb950; border:1px solid #238636; }
     #status.disconnected { background:#3d1c1c; color:#f85149; border:1px solid #6e1c1c; }
 
+    /* ── Control bar ─────────────────────────────────────── */
     #controls {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      display: flex; gap: 8px; align-items: flex-end;
     }
-    .ctrl-row { display: flex; gap: 10px; }
-    #controls button {
+
+    /* Base button style shared by all controls */
+    .ctrl-btn {
       font-family: 'Courier New', monospace; font-size: 13px;
-      padding: 7px 18px; border-radius: 5px; border: 1px solid #30363d;
-      background: rgba(13,17,23,0.85); color: #e6edf3; cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
+      padding: 7px 16px; border-radius: 5px; border: 1px solid #30363d;
+      background: rgba(13,17,23,0.88); color: #e6edf3; cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+      white-space: nowrap; user-select: none;
     }
-    #controls button:hover { background: #21262d; border-color: #58a6ff; }
-    #btn-play-pause.playing  { border-color: #3fb950; color: #3fb950; }
-    #btn-speed.realtime      { border-color: #58a6ff; color: #58a6ff; }
-    #btn-reset:active        { background: #21262d; }
-    #controls .btn-disturbance.active  { border-color: #d29922; color: #d29922; }
+    .ctrl-btn:hover   { background: #21262d; border-color: #58a6ff; }
+    .ctrl-btn.playing { border-color: #3fb950; color: #3fb950; }
+    .ctrl-btn.realtime{ border-color: #58a6ff; color: #58a6ff; }
+
+    /* ── Dropdown wrapper ────────────────────────────────── */
+    .dropdown { position: relative; }
+
+    /* Panels float above the button that owns them */
+    .dd-panel {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      background: rgba(13,17,23,0.97);
+      border: 1px solid #30363d; border-radius: 6px;
+      padding: 12px; display: none; z-index: 30;
+      font-family: 'Courier New', monospace; font-size: 12px; color: #e6edf3;
+    }
+    .dd-panel.open { display: block; }
+
+    /* Centre small panels on their button; right-anchor wide ones */
+    #panel-disturbance { left: 50%; transform: translateX(-50%); min-width: 160px; }
+    #panel-imu         { right: 0; width: 360px; }
+
+    /* Section label */
+    .dd-label {
+      color: #8b949e; font-size: 11px; text-transform: uppercase;
+      letter-spacing: .05em; margin-bottom: 8px;
+    }
+
+    /* Radio option list (disturbance) */
+    .opt-list { display: flex; flex-direction: column; gap: 5px; }
+    .btn-radio {
+      width: 100%; text-align: left; padding: 5px 10px;
+      border-radius: 4px; border: 1px solid #30363d;
+      background: transparent; color: #8b949e; cursor: pointer;
+      font-family: inherit; font-size: 12px;
+      transition: all 0.12s;
+    }
+    .btn-radio:hover  { border-color: #58a6ff; color: #e6edf3; }
+    .btn-radio.active { border-color: #d29922; color: #d29922; }
+
+    /* Toggle row (noise) */
+    .toggle-row { display: flex; gap: 6px; margin-bottom: 10px; }
+    .btn-toggle {
+      padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d;
+      background: transparent; color: #8b949e; cursor: pointer;
+      font-family: inherit; font-size: 12px;
+      transition: all 0.12s;
+    }
+    .btn-toggle:hover  { border-color: #58a6ff; }
+    .btn-toggle.active { border-color: #bc8cff; color: #bc8cff; }
+
+    /* Selector row (sensor / axis) */
+    .sel-row { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
+    .sel-label { color: #8b949e; font-size: 11px; }
+    .btn-sel {
+      padding: 3px 7px; border-radius: 3px; border: 1px solid #30363d;
+      background: transparent; color: #8b949e; cursor: pointer;
+      font-family: inherit; font-size: 11px;
+      transition: all 0.12s;
+    }
+    .btn-sel:hover  { border-color: #58a6ff; }
+    .btn-sel.active { border-color: #58a6ff; color: #58a6ff; }
+
+    /* Legend */
+    .legend { display: flex; gap: 16px; margin-bottom: 6px; font-size: 11px; }
+    .leg-gt  { color: #3fb950; }
+    .leg-imu { color: #f85149; }
+
+    /* IMU plot canvas */
+    #imu-plot {
+      display: block; width: 336px; height: 150px;
+      border-radius: 3px; background: #0a0d11;
+      border: 1px solid #21262d;
+    }
   </style>
 </head>
 <body>
-  <div id="hud">Connecting…</div>
   <div id="status" class="disconnected">● Disconnected</div>
+
   <div id="controls">
-    <div class="ctrl-row">
-      <button id="btn-reset">↺ Reset</button>
-      <button id="btn-play-pause">▶ Play</button>
-      <button id="btn-speed">⚡ Fast</button>
+    <button id="btn-reset"      class="ctrl-btn">↺ Reset</button>
+    <button id="btn-play-pause" class="ctrl-btn">▶ Play</button>
+    <button id="btn-speed"      class="ctrl-btn realtime">×1 RT</button>
+
+    <!-- Disturbance dropdown -->
+    <div class="dropdown" id="dd-disturbance">
+      <button id="btn-disturbance" class="ctrl-btn">Disturbance ▾</button>
+      <div class="dd-panel" id="panel-disturbance">
+        <div class="dd-label">External Disturbance</div>
+        <div class="opt-list">
+          <button class="btn-radio"        data-ep="/disturbance/gaussian">Gaussian</button>
+          <button class="btn-radio"        data-ep="/disturbance/ou">OU Wind</button>
+          <button class="btn-radio active" data-ep="/disturbance/none">None</button>
+        </div>
+      </div>
     </div>
-    <div class="ctrl-row">
-      <button class="btn-disturbance active" data-mode="0" data-endpoint="/disturbance/gaussian">Gaussian</button>
-      <button class="btn-disturbance"        data-mode="1" data-endpoint="/disturbance/ou">OU Wind</button>
-      <button class="btn-disturbance"        data-mode="2" data-endpoint="/disturbance/none">None (Perturb)</button>
+
+    <!-- IMU Noise dropdown -->
+    <div class="dropdown" id="dd-imu">
+      <button id="btn-imu" class="ctrl-btn">IMU Noise ▾</button>
+      <div class="dd-panel" id="panel-imu">
+        <div class="dd-label">Noise Components</div>
+        <div class="toggle-row">
+          <button class="btn-toggle btn-noise active" data-on="/noise/white/on" data-off="/noise/white/off">White</button>
+          <button class="btn-toggle btn-noise active" data-on="/noise/bias/on"  data-off="/noise/bias/off">Bias</button>
+          <button class="btn-toggle btn-noise active" data-on="/noise/walk/on"  data-off="/noise/walk/off">Walk</button>
+        </div>
+        <div class="sel-row">
+          <span class="sel-label">Sensor</span>
+          <button class="btn-sel btn-sensor active" data-sensor="gyro">Gyro</button>
+          <button class="btn-sel btn-sensor"        data-sensor="accel">Accel</button>
+          <span class="sel-label" style="margin-left:8px">Axis</span>
+          <button class="btn-sel btn-axis active" data-axis="0">X</button>
+          <button class="btn-sel btn-axis"        data-axis="1">Y</button>
+          <button class="btn-sel btn-axis"        data-axis="2">Z</button>
+        </div>
+        <div class="legend">
+          <span class="leg-gt">── Ground Truth</span>
+          <span class="leg-imu">╌╌ IMU</span>
+        </div>
+        <canvas id="imu-plot" width="336" height="150"></canvas>
+        <div id="imu-readout" style="font-size:10px; color:#484f58; margin-top:4px; font-family:'Courier New',monospace;">—</div>
+      </div>
     </div>
   </div>
 
@@ -81,28 +176,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // ---------------------------------------------------------------------------
 
 let latest = null;
-const hudEl  = document.getElementById('hud');
 const statEl = document.getElementById('status');
 
 function connect() {
-  // Connect to the same host that served this page.
   const ws = new WebSocket(`ws://${location.host}/ws`);
-
-  ws.onopen = () => {
-    statEl.textContent = '● Connected';
-    statEl.className = 'connected';
-  };
-
-  ws.onmessage = ev => { latest = JSON.parse(ev.data); };
-
-  ws.onclose = () => {
-    statEl.textContent = '● Disconnected';
-    statEl.className = 'disconnected';
-    hudEl.innerHTML = 'Connecting…';
-    setTimeout(connect, 1000);
-  };
-
+  ws.onopen  = () => { statEl.textContent = '● Connected';    statEl.className = 'connected'; };
+  ws.onclose = () => { statEl.textContent = '● Disconnected'; statEl.className = 'disconnected'; setTimeout(connect, 1000); };
   ws.onerror = () => ws.close();
+  ws.onmessage = ev => {
+    latest = JSON.parse(ev.data);
+    if (imuPanelOpen) addPlotPoint(latest);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,18 +216,15 @@ controls.minDistance = 0.5;
 controls.maxDistance = 80;
 
 scene.add(new THREE.AmbientLight(0xd0e8ff, 0.5));
-
 const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
 sun.position.set(8, 14, 6);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near  = 0.5;
-sun.shadow.camera.far   = 80;
-sun.shadow.camera.left  = sun.shadow.camera.bottom = -20;
-sun.shadow.camera.right = sun.shadow.camera.top    =  20;
+sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 80;
+sun.shadow.camera.left = sun.shadow.camera.bottom = -20;
+sun.shadow.camera.right = sun.shadow.camera.top = 20;
 scene.add(sun);
 
-// Ground
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(80, 80),
   new THREE.MeshLambertMaterial({ color: 0x161b22 })
@@ -152,8 +233,6 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 scene.add(new THREE.GridHelper(80, 80, 0x21262d, 0x21262d));
-
-// Axis helper at origin: red=East(+X), green=Up(+Y), blue=−North(+Z in Three.js)
 scene.add(new THREE.AxesHelper(1.5));
 
 // ---------------------------------------------------------------------------
@@ -162,17 +241,10 @@ scene.add(new THREE.AxesHelper(1.5));
 
 function createDrone() {
   const g = new THREE.Group();
-
-  // Body
   g.add(Object.assign(
-    new THREE.Mesh(
-      new THREE.BoxGeometry(0.10, 0.030, 0.10),
-      new THREE.MeshLambertMaterial({ color: 0x1f6feb })
-    ),
-    { castShadow: true }
+    new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.030, 0.10),
+    new THREE.MeshLambertMaterial({ color: 0x1f6feb })), { castShadow: true }
   ));
-
-  // Red front marker — body +X = East when unrotated
   const front = new THREE.Mesh(
     new THREE.BoxGeometry(0.028, 0.031, 0.028),
     new THREE.MeshLambertMaterial({ color: 0xf85149 })
@@ -180,97 +252,48 @@ function createDrone() {
   front.position.set(0.05, 0, 0);
   g.add(front);
 
-  // Motor positions in Three.js local space.
-  // Body [+a, -a, 0] → Three.js [+a, 0, +a]  (FR)
-  // Body [-a, +a, 0] → Three.js [-a, 0, -a]  (RL)
-  // Body [+a, +a, 0] → Three.js [+a, 0, -a]  (FL)
-  // Body [-a, -a, 0] → Three.js [-a, 0, +a]  (RR)
-  const a = 0.15 * Math.SQRT2 * 0.5; // ≈ 0.106 m
+  const a = 0.15 * Math.SQRT2 * 0.5;
   const motors = [
-    { pos: [ a, 0,  a], light: true  },  // FR – CCW
-    { pos: [-a, 0, -a], light: true  },  // RL – CCW
-    { pos: [ a, 0, -a], light: false },  // FL – CW
-    { pos: [-a, 0,  a], light: false },  // RR – CW
+    { pos: [ a, 0,  a], light: true  },
+    { pos: [-a, 0, -a], light: true  },
+    { pos: [ a, 0, -a], light: false },
+    { pos: [-a, 0,  a], light: false },
   ];
-
   const armMat = new THREE.MeshLambertMaterial({ color: 0x30363d });
-
   for (const { pos: [mx, my, mz], light } of motors) {
-    // Arm
     const armLen = Math.hypot(mx, mz);
     const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.015, 0.025), armMat);
-    arm.position.set(mx / 2, 0, mz / 2);
+    arm.position.set(mx/2, 0, mz/2);
     arm.rotation.y = -Math.atan2(mz, mx);
     arm.castShadow = true;
     g.add(arm);
-
-    // Motor can
     const can = new THREE.Mesh(
       new THREE.CylinderGeometry(0.022, 0.022, 0.028, 12),
       new THREE.MeshLambertMaterial({ color: 0x484f58 })
     );
-    can.position.set(mx, my + 0.025, mz);
+    can.position.set(mx, my+0.025, mz);
     can.castShadow = true;
     g.add(can);
-
-    // Propeller disc (light = CCW, dark = CW)
     const prop = new THREE.Mesh(
       new THREE.CylinderGeometry(0.065, 0.065, 0.004, 20),
-      new THREE.MeshLambertMaterial({
-        color: light ? 0xd2a679 : 0x222233,
-        transparent: true, opacity: 0.75,
-      })
+      new THREE.MeshLambertMaterial({ color: light ? 0xd2a679 : 0x222233, transparent: true, opacity: 0.75 })
     );
-    prop.position.set(mx, my + 0.04, mz);
+    prop.position.set(mx, my+0.04, mz);
     g.add(prop);
   }
-
   return g;
 }
 
 const drone = createDrone();
 scene.add(drone);
 
-// Velocity arrow
 const velArrow = new THREE.ArrowHelper(
-  new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 0, 0x39d353, 0.15, 0.08
+  new THREE.Vector3(0,1,0), new THREE.Vector3(), 0, 0x39d353, 0.15, 0.08
 );
 scene.add(velArrow);
 
-// ---------------------------------------------------------------------------
-// Coordinate frame conversion
-//
-// Simulator: ENU (X=East, Y=North, Z=Up)
-// Three.js:  Y-up right-hand (X=East, Y=Up, Z=−North)
-//
-// position:   three = [enu.x,  enu.z, −enu.y]
-// quaternion: vector part transforms identically to position vectors
-//             THREE.Quaternion(qx, qz, −qy, qw)
-// ---------------------------------------------------------------------------
-
-function enuPos([x, y, z]) {
-  return new THREE.Vector3(x, z, -y);
-}
-
-function enuQuat([qx, qy, qz, qw]) {
-  return new THREE.Quaternion(qx, qz, -qy, qw);
-}
-
-// ---------------------------------------------------------------------------
-// HUD
-// ---------------------------------------------------------------------------
-
-function updateHud(s) {
-  const t   = (s.sim_time_us / 1e6).toFixed(1);
-  const [ex, ey, ez] = s.position.map(v => v.toFixed(2));
-  const [vx, vy, vz] = s.velocity;
-  const spd = Math.hypot(vx, vy, vz).toFixed(2);
-  hudEl.innerHTML = `\
-<span class="label">time  </span><span class="value">${t} s</span>
-<span class="label">alt   </span><span class="value">${ez} m</span>
-<span class="label">pos   </span><span class="value">E${ex} N${ey}</span>
-<span class="label">speed </span><span class="value">${spd} m/s</span>`;
-}
+function enuPos([x, y, z]) { return new THREE.Vector3(x, z, -y); }
+function enuQuat([qx, qy, qz, qw]) { return new THREE.Quaternion(qx, qz, -qy, qw); }
 
 // ---------------------------------------------------------------------------
 // Render loop
@@ -281,16 +304,11 @@ const targetQuat = new THREE.Quaternion();
 
 function animate() {
   requestAnimationFrame(animate);
-
   if (latest) {
     targetPos.copy(enuPos(latest.position));
     targetQuat.copy(enuQuat(latest.quaternion));
-
-    // Lerp/slerp to absorb the 60 Hz stepping
     drone.position.lerp(targetPos, 0.25);
     drone.quaternion.slerp(targetQuat, 0.25);
-
-    // Velocity arrow
     const vel = enuPos(latest.velocity);
     const spd = vel.length();
     if (spd > 0.05) {
@@ -301,11 +319,8 @@ function animate() {
       velArrow.visible = false;
     }
     velArrow.position.copy(drone.position);
-
     controls.target.lerp(drone.position, 0.02);
-    updateHud(latest);
   }
-
   controls.update();
   renderer.render(scene, camera);
 }
@@ -324,7 +339,7 @@ const btnPlayPause = document.getElementById('btn-play-pause');
 const btnReset     = document.getElementById('btn-reset');
 const btnSpeed     = document.getElementById('btn-speed');
 let playing = false;
-let isRealtime = false;
+let isRealtime = true;
 
 function setPlaying(v) {
   playing = v;
@@ -344,15 +359,164 @@ btnPlayPause.addEventListener('click', () => setPlaying(!playing));
 btnReset.addEventListener('click', () => fetch('/reset'));
 btnSpeed.addEventListener('click', () => setRealtime(!isRealtime));
 
-// Disturbance mode
-const disturbanceBtns = document.querySelectorAll('.btn-disturbance');
-disturbanceBtns.forEach(btn => {
+// ---------------------------------------------------------------------------
+// Disturbance dropdown
+// ---------------------------------------------------------------------------
+
+const ddDisturbance  = document.getElementById('dd-disturbance');
+const panelDisturb   = document.getElementById('panel-disturbance');
+const btnDisturbance = document.getElementById('btn-disturbance');
+
+btnDisturbance.addEventListener('click', e => {
+  e.stopPropagation();
+  panelDisturb.classList.toggle('open');
+  panelImu.classList.remove('open');
+});
+
+document.querySelectorAll('.btn-radio').forEach(btn => {
   btn.addEventListener('click', () => {
-    disturbanceBtns.forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.btn-radio').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    fetch(btn.dataset.endpoint);
+    fetch(btn.dataset.ep);
+    panelDisturb.classList.remove('open');
   });
 });
+
+// ---------------------------------------------------------------------------
+// IMU Noise dropdown
+// ---------------------------------------------------------------------------
+
+const ddImu   = document.getElementById('dd-imu');
+const panelImu = document.getElementById('panel-imu');
+const btnImu  = document.getElementById('btn-imu');
+let imuPanelOpen = false;
+
+btnImu.addEventListener('click', e => {
+  e.stopPropagation();
+  imuPanelOpen = panelImu.classList.toggle('open');
+  panelDisturb.classList.remove('open');
+  if (imuPanelOpen) { plotGt = []; plotImu = []; plotTimes = []; }
+});
+
+document.querySelectorAll('.btn-noise').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const active = btn.classList.toggle('active');
+    fetch(active ? btn.dataset.on : btn.dataset.off);
+  });
+});
+
+// Close panels on outside click
+document.addEventListener('click', e => {
+  if (!ddDisturbance.contains(e.target)) panelDisturb.classList.remove('open');
+  if (!ddImu.contains(e.target)) { panelImu.classList.remove('open'); imuPanelOpen = false; }
+});
+
+// ---------------------------------------------------------------------------
+// IMU plot
+// ---------------------------------------------------------------------------
+
+const PLOT_N = 300; // 5 s at 60 Hz
+let plotGt = [], plotImu = [], plotTimes = [];
+let selectedAxis   = 0;
+let selectedSensor = 'gyro';
+
+function clearPlot() { plotGt = []; plotImu = []; plotTimes = []; }
+
+document.querySelectorAll('.btn-sensor').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.btn-sensor').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedSensor = btn.dataset.sensor;
+    clearPlot();
+  });
+});
+
+document.querySelectorAll('.btn-axis').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.btn-axis').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedAxis = parseInt(btn.dataset.axis, 10);
+    clearPlot();
+  });
+});
+
+
+const readoutEl = document.getElementById('imu-readout');
+
+function addPlotPoint(s) {
+  const t   = s.sim_time_us / 1e6;
+  const gt  = selectedSensor === 'gyro' ? s.angular_velocity[selectedAxis] : s.specific_force[selectedAxis];
+  const imu = selectedSensor === 'gyro' ? s.imu_gyro[selectedAxis]         : s.imu_accel[selectedAxis];
+  if (!isFinite(gt) || !isFinite(imu)) return;
+  plotTimes.push(t);
+  plotGt.push(gt);
+  plotImu.push(imu);
+  if (plotGt.length > PLOT_N) { plotTimes.shift(); plotGt.shift(); plotImu.shift(); }
+  readoutEl.textContent = `GT ${gt.toFixed(5)}  IMU ${imu.toFixed(5)}  Δ ${(imu - gt).toFixed(5)}`;
+  drawPlot();
+}
+
+function drawPlot() {
+  const canvas = document.getElementById('imu-plot');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const P = { t: 6, r: 6, b: 18, l: 46 };
+  const PW = W - P.l - P.r, PH = H - P.t - P.b;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0a0d11';
+  ctx.fillRect(0, 0, W, H);
+
+  if (plotGt.length < 2) {
+    ctx.fillStyle = '#484f58'; ctx.font = '11px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText('Waiting for data…', W / 2, H / 2);
+    return;
+  }
+
+  const offset = PLOT_N - plotGt.length;
+  const toX = i => P.l + ((i + offset) / (PLOT_N - 1)) * PW;
+
+  // Grid lines
+  ctx.strokeStyle = '#161b22'; ctx.lineWidth = 0.5;
+  for (let k = 0; k <= 4; k++) {
+    const y = P.t + (k / 4) * PH;
+    ctx.beginPath(); ctx.moveTo(P.l, y); ctx.lineTo(P.l + PW, y); ctx.stroke();
+  }
+
+  const all = [...plotGt, ...plotImu];
+  let yMin = Math.min(...all), yMax = Math.max(...all);
+  if (Math.abs(yMax - yMin) < 1e-6) { yMin -= 0.1; yMax += 0.1; }
+  const yRange = yMax - yMin;
+  const toY = v => P.t + PH - ((v - yMin) / yRange) * PH;
+
+  // GT line (solid green)
+  ctx.strokeStyle = '#3fb950'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+  ctx.beginPath();
+  plotGt.forEach((v, i) => { const x = toX(i), y = toY(v); i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y); });
+  ctx.stroke();
+
+  // IMU line (dashed red)
+  ctx.strokeStyle = '#f85149'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  plotImu.forEach((v, i) => { const x = toX(i), y = toY(v); i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y); });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Y labels
+  ctx.fillStyle = '#8b949e'; ctx.font = '10px Courier New'; ctx.textAlign = 'right';
+  ctx.fillText(yMax.toFixed(3), P.l - 3, P.t + 9);
+  ctx.fillText(((yMax + yMin) / 2).toFixed(3), P.l - 3, P.t + PH / 2 + 4);
+  ctx.fillText(yMin.toFixed(3), P.l - 3, P.t + PH);
+
+  // X labels
+  ctx.fillStyle = '#8b949e'; ctx.font = '10px Courier New';
+  ctx.textAlign = 'left';  ctx.fillText(`${plotTimes[0].toFixed(1)}s`, P.l, H - 3);
+  ctx.textAlign = 'right'; ctx.fillText(`${plotTimes[plotTimes.length-1].toFixed(1)}s`, P.l + PW, H - 3);
+}
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
 
 connect();
 animate();

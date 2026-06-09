@@ -1,0 +1,14 @@
+[package]
+name = "open-loop-commander"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "open-loop-commander"
+path = "src/main.rs"
+
+[dependencies]
+ozonide-core = { path = "../../ozonide-core" }
+postcard     = { version = "1", default-features = false, features = ["use-std"] }
+crossterm    = "0.28"
+ureq         = "2"

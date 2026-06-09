@@ -37,29 +37,42 @@ impl Default for ImuNoise {
 
 pub struct ImuModel {
     pub noise_parameters: ImuNoise,
-    accel_bias_state: Vector3<f64>,
-    gyro_bias_state: Vector3<f64>,
+    /// Toggle instantaneous Gaussian noise on each measurement.
+    pub white_noise_enabled: bool,
+    /// Toggle the constant per-axis bias offset (sampled once at construction).
+    pub bias_enabled: bool,
+    /// Toggle random walk — the slow drift that accumulates over time.
+    pub walk_enabled: bool,
+    accel_bias: Vector3<f64>,
+    accel_walk: Vector3<f64>,
+    gyro_bias: Vector3<f64>,
+    gyro_walk: Vector3<f64>,
     last_time_us: u64,
 }
 
 impl ImuModel {
     pub fn new(noise_parameters: ImuNoise, rng: &mut impl Rng) -> Self {
-        let accel_bias_distribution = Normal::new(0.0, noise_parameters.accel_bias_std).unwrap();
-        let accel_bias_state = Vector3::new(
-            accel_bias_distribution.sample(rng),
-            accel_bias_distribution.sample(rng),
-            accel_bias_distribution.sample(rng),
+        let accel_dist = Normal::new(0.0, noise_parameters.accel_bias_std).unwrap();
+        let accel_bias = Vector3::new(
+            accel_dist.sample(rng),
+            accel_dist.sample(rng),
+            accel_dist.sample(rng),
         );
-        let gyro_bias_distribution = Normal::new(0.0, noise_parameters.gyro_bias_std).unwrap();
-        let gyro_bias_state = Vector3::new(
-            gyro_bias_distribution.sample(rng),
-            gyro_bias_distribution.sample(rng),
-            gyro_bias_distribution.sample(rng),
+        let gyro_dist = Normal::new(0.0, noise_parameters.gyro_bias_std).unwrap();
+        let gyro_bias = Vector3::new(
+            gyro_dist.sample(rng),
+            gyro_dist.sample(rng),
+            gyro_dist.sample(rng),
         );
         Self {
             noise_parameters,
-            accel_bias_state,
-            gyro_bias_state,
+            white_noise_enabled: true,
+            bias_enabled: true,
+            walk_enabled: true,
+            accel_bias,
+            accel_walk: Vector3::zeros(),
+            gyro_bias,
+            gyro_walk: Vector3::zeros(),
             last_time_us: 0,
         }
     }
@@ -71,52 +84,44 @@ impl ImuModel {
         sim_time_us: u64,
         rng: &mut impl Rng,
     ) -> ImuData {
-        let normal_distribution = Normal::new(0.0, 1.0).unwrap();
-        let acceleration_world = state_dot.linear_acceleration;
         let dt = u64::saturating_sub(sim_time_us, self.last_time_us) as f64 * 1e-6;
-        if dt > 0.0 {
-            let dt_sqrt = dt.sqrt();
-            self.accel_bias_state += Vector3::new(
-                normal_distribution.sample(rng),
-                normal_distribution.sample(rng),
-                normal_distribution.sample(rng),
-            ) * self.noise_parameters.accel_walk_std
-                * dt_sqrt;
-            self.gyro_bias_state += Vector3::new(
-                normal_distribution.sample(rng),
-                normal_distribution.sample(rng),
-                normal_distribution.sample(rng),
-            ) * self.noise_parameters.gyro_walk_std
-                * dt_sqrt;
-        }
         self.last_time_us = sim_time_us;
+
+        if self.walk_enabled && dt > 0.0 {
+            let n = Normal::new(0.0, 1.0).unwrap();
+            let s = dt.sqrt();
+            self.accel_walk += Vector3::new(n.sample(rng), n.sample(rng), n.sample(rng))
+                * self.noise_parameters.accel_walk_std * s;
+            self.gyro_walk += Vector3::new(n.sample(rng), n.sample(rng), n.sample(rng))
+                * self.noise_parameters.gyro_walk_std * s;
+        }
 
         // Specific force in world frame: acceleration minus gravity (ENU: gravity = -Z).
         let specific_force_world =
-            acceleration_world + Vector3::new(0.0, 0.0, GRAVITATIONAL_CONSTANT);
+            state_dot.linear_acceleration + Vector3::new(0.0, 0.0, GRAVITATIONAL_CONSTANT);
         let specific_force_body = state
             .attitude
             .inverse_transform_vector(&specific_force_world);
 
-        let acceleration = std::array::from_fn(|i| {
-            (specific_force_body[i]
-                + self.accel_bias_state[i]
-                + self.noise_parameters.accel_noise_std * normal_distribution.sample(rng))
-                as f32
+        let accel_bias = if self.bias_enabled { self.accel_bias } else { Vector3::zeros() };
+        let accel_walk = if self.walk_enabled { self.accel_walk } else { Vector3::zeros() };
+        let gyro_bias  = if self.bias_enabled { self.gyro_bias  } else { Vector3::zeros() };
+        let gyro_walk  = if self.walk_enabled { self.gyro_walk  } else { Vector3::zeros() };
+
+        let n = Normal::new(0.0, 1.0).unwrap();
+        let accel_white = if self.white_noise_enabled { self.noise_parameters.accel_noise_std } else { 0.0 };
+        let gyro_white  = if self.white_noise_enabled { self.noise_parameters.gyro_noise_std  } else { 0.0 };
+
+        let linear_acceleration = std::array::from_fn(|i| {
+            (specific_force_body[i] + accel_bias[i] + accel_walk[i]
+                + accel_white * n.sample(rng)) as f32
+        });
+        let angular_velocity = std::array::from_fn(|i| {
+            (state.angular_velocity[i] + gyro_bias[i] + gyro_walk[i]
+                + gyro_white * n.sample(rng)) as f32
         });
 
-        let angular_velocity = std::array::from_fn(|i| {
-            (state.angular_velocity[i]
-                + self.gyro_bias_state[i]
-                + self.noise_parameters.gyro_noise_std * normal_distribution.sample(rng))
-                as f32
-        });
-        ImuData {
-            timestamp_us: sim_time_us,
-            linear_acceleration: acceleration,
-            angular_velocity: angular_velocity,
-            temperature: 25.0,
-        }
+        ImuData { timestamp_us: sim_time_us, linear_acceleration, angular_velocity, temperature: 25.0 }
     }
 }
 
