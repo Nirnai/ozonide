@@ -35,6 +35,14 @@ impl Controller for CascadedPidController {
             self.last_timestamp_us = Some(state.timestamp_us);
             return ControlDemand::default();
         };
+
+        // Simulator reset: timestamp went backward — clear integrators and reseed.
+        if state.timestamp_us < last_timestamp_us {
+            self.reset();
+            self.last_timestamp_us = Some(state.timestamp_us);
+            return ControlDemand::default();
+        }
+
         let dt = (state.timestamp_us - last_timestamp_us) as f32 * 1e-6;
         self.last_timestamp_us = Some(state.timestamp_us);
 

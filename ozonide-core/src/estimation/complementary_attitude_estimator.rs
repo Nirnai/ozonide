@@ -101,6 +101,13 @@ impl StateEstimator for ComplementaryAttitudeEstimator {
             return VehicleState::default();
         };
 
+        // Simulator reset: timestamp went backward — clear all state and reseed.
+        if imu.timestamp_us < last_timestamp_us {
+            self.reset();
+            self.last_timestamp_us = Some(imu.timestamp_us);
+            return VehicleState::default();
+        }
+
         let dt = (imu.timestamp_us - last_timestamp_us) as f32 * 1e-6;
         self.last_timestamp_us = Some(imu.timestamp_us);
 
