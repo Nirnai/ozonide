@@ -59,7 +59,7 @@ impl ControlAllocator {
         angular_acceleration_estimate: &Vector3<f32>,
         specific_thrust_estimate: f32,
         actuator_state_estimate: &Vector4<f32>,
-    ) -> ActuatorCommand {
+    ) -> Vector4<f32> {
         let virtual_control_error = Vector4::new(
             angular_acceleration_setpoint.roll_acceleration - angular_acceleration_estimate[0],
             angular_acceleration_setpoint.pitch_acceleration - angular_acceleration_estimate[1],
@@ -68,10 +68,7 @@ impl ControlAllocator {
         );
         let du = self.g_inv * virtual_control_error;
         let u = actuator_state_estimate + du;
-        let actuator_output = u.map(|x| x.clamp(self.u_min, self.u_max));
-        ActuatorCommand {
-            motor_throttle: actuator_output.into(),
-        }
+        return u.map(|x| x.clamp(self.u_min, self.u_max));
     }
 }
 
@@ -204,7 +201,7 @@ mod tests {
         let measured_thrust = 1.0; // g's, consistent with hovering
 
         let out = a.allocate(&sp, &measured_omega_dot, measured_thrust, &h);
-        assert_vec4_rel_eq(&Vector4::from(out.motor_throttle), &h, 1e-5);
+        assert_vec4_rel_eq(&out, &h, 1e-5);
     }
 
     // ---- 3. The increment property (the core INDI invariant) ----
@@ -220,7 +217,7 @@ mod tests {
         let sp = setpoint(10.0, -5.0, 2.0, 1.0);
 
         let out = a.allocate(&sp, &measured, measured_thrust, &h);
-        let achieved = test_g() * (Vector4::from(out.motor_throttle) - h);
+        let achieved = test_g() * (out - h);
 
         assert!((achieved[0] - (10.0 - 1.5)).abs() < 1e-2);
         assert!((achieved[1] - (-5.0 - -2.0)).abs() < 1e-2);
@@ -236,8 +233,7 @@ mod tests {
     fn positive_roll_demand_raises_left_motors() {
         let a = alloc();
         let h = hover();
-        let out = a.allocate(&setpoint(50.0, 0.0, 0.0, 1.0), &Vector3::zeros(), 1.0, &h);
-        let u = out.motor_throttle; // [FR, RL, FL, RR]
+        let u = a.allocate(&setpoint(50.0, 0.0, 0.0, 1.0), &Vector3::zeros(), 1.0, &h); // [FR, RL, FL, RR]
         assert!(u[1] > h[1] && u[2] > h[2], "RL, FL should increase");
         assert!(u[0] < h[0] && u[3] < h[3], "FR, RR should decrease");
     }
@@ -246,8 +242,7 @@ mod tests {
     fn positive_pitch_demand_raises_rear_motors() {
         let a = alloc();
         let h = hover();
-        let out = a.allocate(&setpoint(0.0, 50.0, 0.0, 1.0), &Vector3::zeros(), 1.0, &h);
-        let u = out.motor_throttle;
+        let u = a.allocate(&setpoint(0.0, 50.0, 0.0, 1.0), &Vector3::zeros(), 1.0, &h);
         assert!(u[1] > h[1] && u[3] > h[3], "RL, RR should increase");
         assert!(u[0] < h[0] && u[2] < h[2], "FR, FL should decrease");
     }
@@ -256,8 +251,7 @@ mod tests {
     fn positive_yaw_demand_raises_cw_motors() {
         let a = alloc();
         let h = hover();
-        let out = a.allocate(&setpoint(0.0, 0.0, 20.0, 1.0), &Vector3::zeros(), 1.0, &h);
-        let u = out.motor_throttle;
+        let u = a.allocate(&setpoint(0.0, 0.0, 20.0, 1.0), &Vector3::zeros(), 1.0, &h);
         assert!(u[0] > h[0] && u[1] > h[1], "FR, RL (CW) should increase");
         assert!(u[2] < h[2] && u[3] < h[3], "FL, RR (CCW) should decrease");
     }
@@ -267,8 +261,7 @@ mod tests {
         let a = alloc();
         let h = hover();
         // Demand 1.05 g while measuring 1.0 g → +0.05 g increment, collective.
-        let out = a.allocate(&setpoint(0.0, 0.0, 0.0, 1.05), &Vector3::zeros(), 1.0, &h);
-        let u = out.motor_throttle;
+        let u = a.allocate(&setpoint(0.0, 0.0, 0.0, 1.05), &Vector3::zeros(), 1.0, &h);
         assert!(u.iter().all(|&x| x > h[0]));
         let spread =
             u.iter().cloned().fold(f32::MIN, f32::max) - u.iter().cloned().fold(f32::MAX, f32::min);
@@ -292,12 +285,12 @@ mod tests {
             (test_g() * high)[3],
             &high,
         );
-        for &x in out.motor_throttle.iter() {
+        for &x in out.iter() {
             assert!(x.is_finite());
             assert!((U_MIN..=U_MAX).contains(&x));
         }
         assert!(
-            out.motor_throttle.iter().any(|&x| x == U_MAX || x == U_MIN),
+            out.iter().any(|&x| x == U_MAX || x == U_MIN),
             "demand this large must pin at least one motor"
         );
     }
