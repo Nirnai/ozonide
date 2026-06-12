@@ -3,7 +3,7 @@ use crate::{
     traits::Controller,
 };
 
-use crate::control::cascaded_pid_controller::{
+use crate::control::pid::{
     AngularVelocityController, AngularVelocityGains, AttitudeController, AttitudeGains,
 };
 

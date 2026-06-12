@@ -1,7 +1,5 @@
-mod allocation;
-mod authority;
-mod cascaded_pid_controller;
+mod pid;
+mod indi;
 
-pub use allocation::allocate_control;
-pub use cascaded_pid_controller::{AttitudeGains, AngularVelocityGains, CascadedPidController, PidGains};
-pub use crate::msgs::ControlDemand;
+// pub use allocation::{ControlAllocator, InvalidEffectiveness};
+// pub use pid::{AttitudeGains, AngularVelocityGains, CascadedPidController, PidGains};

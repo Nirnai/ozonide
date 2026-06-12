@@ -27,25 +27,22 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{self, Watch};
 
-use crate::msgs::{ActuatorCommand, ControlDemand, ImuData, VehicleState};
+use crate::msgs::{ActuatorCommand, ImuData, VehicleState};
 
-/// Global IMU topic. Published by [`crate::tasks::imu_task`] at the
-/// configured ODR (default 1 kHz). Supports one tracked subscriber.
-pub static IMU_TOPIC: Topic<ImuData, 1> = Topic::new();
+pub const MAX_SUBS: usize = 4;
 
-/// Global vehicle state topic. Published by the state estimation task at IMU rate.
-/// Consumed by the control computation task. Fields without an active estimator
-/// default to zero — see [`VehicleState`] for which fields are populated.
-pub static VEHICLE_STATE_TOPIC: Topic<VehicleState, 1> = Topic::new();
+// /// Global IMU topic. Published by [`crate::tasks::imu_task`] at the
+// /// configured ODR (default 1 kHz). Supports one tracked subscriber.
+// pub static IMU_TOPIC: Topic<ImuData, 1> = Topic::new();
 
-/// Global control demand topic. Published by the control task. Consumed by the
-/// actuator task, which applies authority limiting and motor mixing before
-/// writing to the transport layer.
-pub static CONTROL_DEMAND_TOPIC: Topic<ControlDemand, 1> = Topic::new();
+// /// Global vehicle state topic. Published by the state estimation task at IMU rate.
+// /// Consumed by the control computation task. Fields without an active estimator
+// /// default to zero — see [`VehicleState`] for which fields are populated.
+// pub static VEHICLE_STATE_TOPIC: Topic<VehicleState, 1> = Topic::new();
 
-/// Global actuator topic. Published by the actuator task after allocation.
-/// Consumed by the transport layer (UDP in SITL, PWM/DSHOT in firmware).
-pub static ACTUATOR_TOPIC: Topic<ActuatorCommand, 1> = Topic::new();
+// /// Global actuator topic. Published by the actuator task after allocation.
+// /// Consumed by the transport layer (UDP in SITL, PWM/DSHOT in firmware).
+// pub static ACTUATOR_COMMAND_TOPIC: Topic<ActuatorCommand, 1> = Topic::new();
 
 /// A pub/sub topic combining a latest-value store with a publish counter.
 ///
@@ -58,6 +55,13 @@ pub static ACTUATOR_TOPIC: Topic<ActuatorCommand, 1> = Topic::new();
 pub struct Topic<T: Clone, const N: usize> {
     watch: Watch<CriticalSectionRawMutex, T, N>,
     count: AtomicU32,
+}
+
+pub trait Message: Clone + Sized + 'static {
+    /// Human-readable topic name (for diagnostics/logging only —
+    /// never for lookup).
+    const NAME: &'static str;
+    fn topic() -> &'static Topic<Self, MAX_SUBS>;
 }
 
 /// Handle returned by [`Topic::publisher`].
@@ -107,7 +111,52 @@ impl<T: Clone, const N: usize> Topic<T, N> {
 
     /// Cumulative publish counter. Pass to [`crate::tasks::rate_monitor`] to
     /// track the publish rate of this topic in Hz.
-    pub fn count(&self) -> &AtomicU32 {
+    pub const fn count(&self) -> &AtomicU32 {
         &self.count
     }
+}
+
+pub fn publisher<M: Message>() -> Publisher<'static, M, MAX_SUBS> {
+    M::topic().publisher()
+}
+pub fn subscriber<M: Message>()
+    -> watch::Receiver<'static, CriticalSectionRawMutex, M, MAX_SUBS> {
+    M::topic().subscriber()
+}
+pub fn observer<M: Message>()
+    -> watch::AnonReceiver<'static, CriticalSectionRawMutex, M, MAX_SUBS> {
+    M::topic().observer()
+}
+
+
+macro_rules! declare_topics {
+    ($( $(#[$meta:meta])* $static_name:ident => $msg:ty ),* $(,)?) => {
+        $(
+            $(#[$meta])*
+            pub static $static_name: Topic<$msg, MAX_SUBS> = Topic::new();
+
+            impl Message for $msg {
+                const NAME: &'static str = stringify!($static_name);
+                fn topic() -> &'static Topic<$msg, MAX_SUBS> { &$static_name }
+            }
+        )*
+
+        /// Every topic's name and publish counter, for rate monitoring.
+        pub static TOPIC_DIRECTORY: &[(&str, &AtomicU32)] = &[
+            $( (stringify!($static_name), $static_name.count()) ),*
+        ];
+    };
+}
+
+declare_topics! {
+    /// Published by the IMU task at the configured ODR.
+    IMU_TOPIC => ImuData,
+    /// Published by the estimator at IMU rate.
+    VEHICLE_STATE_TOPIC => VehicleState,
+    /// Published by the control task after allocation.
+    ACTUATOR_TOPIC => ActuatorCommand,
+
+    // TODO: 
+    // MotorTelemetry
+    // BatteryVoltage
 }

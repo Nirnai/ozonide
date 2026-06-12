@@ -9,7 +9,7 @@ pub async fn state_estimation_task(state_estimator: &mut impl StateEstimator){
 
     loop {
         let imu_data = imu_subscriber.changed().await;
-        let sensor_data = SensorData{imu: Some(&imu_data)};
+        let sensor_data = SensorData{imu: Some(&imu_data), motor: None, battery: None};
         let estimated_state = state_estimator.update(&sensor_data);
         state_publisher.publish(estimated_state);
     }

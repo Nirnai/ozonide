@@ -50,7 +50,7 @@ use libm::{atan2f, sqrtf};
 use nalgebra::UnitQuaternion;
 
 use crate::{
-    msgs::VehicleState,
+    msgs::{StateValidity, VehicleState},
     traits::{SensorData, StateEstimator},
 };
 
@@ -113,7 +113,7 @@ impl StateEstimator for ComplementaryAttitudeEstimator {
 
         let gyro_weight = self.alpha;
         let accel_weight = 1.0 - self.alpha;
-        let [a_x, a_y, a_z] = imu.linear_acceleration;
+        let [a_x, a_y, a_z] = imu.specific_force;
         let accel_roll = atan2f(a_y, a_z);
         let accel_pitch = atan2f(-a_x, sqrtf(a_y * a_y + a_z * a_z));
         let [gyro_roll_rate, gyro_pitch_rate, gyro_yaw_rate] = imu.angular_velocity;
@@ -127,9 +127,10 @@ impl StateEstimator for ComplementaryAttitudeEstimator {
 
         VehicleState {
             timestamp_us: imu.timestamp_us,
+            valid: StateValidity::ATTITUDE,
             attitude: [c.x, c.y, c.z, c.w],
             angular_velocity: imu.angular_velocity,
-            linear_acceleration: imu.linear_acceleration,
+            specific_force: imu.specific_force,
             ..VehicleState::default()
         }
     }
@@ -153,7 +154,7 @@ mod tests {
     const EPS: f32 = 1e-5;
 
     fn imu_at(timestamp_us: u64, accel: [f32; 3], gyro: [f32; 3]) -> ImuData {
-        ImuData { timestamp_us, linear_acceleration: accel, angular_velocity: gyro, temperature: 25.0 }
+        ImuData { timestamp_us, specific_force: accel, angular_velocity: gyro, temperature: 25.0 }
     }
 
     fn level_imu(timestamp_us: u64) -> ImuData {
@@ -172,7 +173,7 @@ mod tests {
     }
 
     fn sensor(imu: &ImuData) -> SensorData<'_> {
-        SensorData { imu: Some(imu) }
+        SensorData { imu: Some(imu), motor: None, battery: None }
     }
 
     #[test]
