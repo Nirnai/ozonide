@@ -112,7 +112,7 @@ impl ImuModel {
         let accel_white = if self.white_noise_enabled { self.noise_parameters.accel_noise_std } else { 0.0 };
         let gyro_white  = if self.white_noise_enabled { self.noise_parameters.gyro_noise_std  } else { 0.0 };
 
-        let linear_acceleration = std::array::from_fn(|i| {
+        let specific_force = std::array::from_fn(|i| {
             (specific_force_body[i] + accel_bias[i] + accel_walk[i]
                 + accel_white * n.sample(rng)) as f32
         });
@@ -121,7 +121,7 @@ impl ImuModel {
                 + gyro_white * n.sample(rng)) as f32
         });
 
-        ImuData { timestamp_us: sim_time_us, linear_acceleration, angular_velocity, temperature: 25.0 }
+        ImuData { timestamp_us: sim_time_us, specific_force, angular_velocity, temperature: 25.0 }
     }
 }
 

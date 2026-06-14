@@ -1,4 +1,4 @@
-use crate::msgs::{ActuatorCommand, AngularAccelerationSetpoint};
+use crate::msgs::AngularAccelerationSetpoint;
 use nalgebra::{Matrix4, Vector3, Vector4};
 
 #[derive(Debug)]

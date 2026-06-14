@@ -210,7 +210,7 @@ async fn main() {
                         angular_velocity: state.angular_velocity.into(),
                         specific_force: sf_body.into(),
                         imu_gyro: sample.angular_velocity,
-                        imu_accel: sample.linear_acceleration,
+                        imu_accel: sample.specific_force,
                     })
                     .ok();
             }
