@@ -1,0 +1,12 @@
+[package]
+name = "bode-plot"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bode-plot"
+path = "src/main.rs"
+
+[dependencies]
+ozonide-core = { path = "../../ozonide-core" }
+plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }

@@ -13,6 +13,7 @@
 
 pub mod control;
 pub mod estimation;
+pub mod filter;
 pub mod msgs;
 pub mod tasks;
 pub mod topics;
