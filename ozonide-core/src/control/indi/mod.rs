@@ -1,2 +1,4 @@
 pub mod allocation;
-pub mod motor_output_map;
+pub mod inverse_actuator_model;
+pub mod input_signal_conditioning;
+

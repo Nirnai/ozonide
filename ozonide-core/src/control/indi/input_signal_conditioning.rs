@@ -67,7 +67,6 @@ impl ActuatorLagModel {
 /// and must be tuned jointly with the rate-loop gains. Typical range: 10–30 Hz.
 pub struct InputSignalConditioning {
     gyro_low_pass_filter: [Filter; 3],
-    omega_dot_low_pass_filter: [Filter; 3],
     omega_filtered_prev: Vector3<f32>,
     thrust_low_pass_filter: Filter,
     actuator_low_pass_filter: [Filter; 4],
@@ -78,10 +77,12 @@ pub struct InputSignalConditioning {
 
 impl InputSignalConditioning {
     pub fn new(f_cut: f32, sample_rate: f32, lag_tau: f32) -> Self {
-        let make_low_pass = || lowpass(sample_rate, f_cut, FilterFamily::Butterworth, 2);
+        // Bessel, not Butterworth: flat group delay matters more here than
+        // magnitude flatness — the delay sits directly in the rate loop, and
+        // Bessel keeps it constant across the maneuver spectrum (see notes).
+        let make_low_pass = || lowpass(sample_rate, f_cut, FilterFamily::Bessel, 2);
         Self {
             gyro_low_pass_filter: core::array::from_fn(|_| make_low_pass()),
-            omega_dot_low_pass_filter: core::array::from_fn(|_| make_low_pass()),
             omega_filtered_prev: Vector3::zeros(),
             thrust_low_pass_filter: make_low_pass(),
             actuator_low_pass_filter: core::array::from_fn(|_| make_low_pass()),
@@ -92,15 +93,16 @@ impl InputSignalConditioning {
     }
 
     pub fn step(&mut self, state: &VehicleState) -> ConditionedSignals {
-        // --- Gyro path ---
-        // 1. Filter ω to suppress noise before differentiating.
+        // --- Gyro path: filter ONCE, then differentiate. ---
+        // d/dt of the filtered rate IS the synchronized angular acceleration:
+        // omega_dot_f = d/dt(H·omega) = H·(true omega_dot), one filter delay,
+        // matching the actuator and thrust paths. No second filter — adding
+        // one would double this path's delay and desync it from u0.
         let omega_filtered = Vector3::from_fn(|i, _| {
             self.gyro_low_pass_filter[i].process(state.angular_velocity[i])
         });
 
-        // 2. Finite difference on the filtered signal.
-        //    Skip the very first sample to avoid a spike from zero-initialized omega_filtered_prev.
-        let omega_dot_raw = if self.primed {
+        let angular_acceleration = if self.primed {
             (omega_filtered - self.omega_filtered_prev) / self.dt
         } else {
             self.primed = true;
@@ -108,30 +110,25 @@ impl InputSignalConditioning {
         };
         self.omega_filtered_prev = omega_filtered;
 
-        // 3. Filter ω̇ at the same cutoff so it shares the gyro path's group delay.
-        let omega_dot_filtered = Vector3::from_fn(|i, _| {
-            self.omega_dot_low_pass_filter[i].process(omega_dot_raw[i])
-        });
+        // --- Thrust path: same single filter. ---
+        let specific_thrust = self
+            .thrust_low_pass_filter
+            .process(state.specific_force[2] / STANDARD_GRAVITY);
 
-        // --- Thrust path ---
-        // FLU body frame: specific_force[2] ≈ +g at hover → thrust_f ≈ 1.0.
-        let thrust_filtered = self.thrust_low_pass_filter.process(state.specific_force[2] / STANDARD_GRAVITY);
-
-        // --- Actuator path ---
-        // Prefer measured eRPM; fall back to the lag model when telemetry is absent.
-        let (omega_motors, measured) = match state.motor_speed() {
+        // --- Actuator path: same single filter. ---
+        let (omega_motors, actuator_measured) = match state.motor_speed() {
             Some(m) => (m, true),
             None => (self.lag_model.omega(), false),
         };
-        let actuator_filtered = Vector4::from_fn(|i, _| {
+        let actuator_state = Vector4::from_fn(|i, _| {
             self.actuator_low_pass_filter[i].process(omega_motors[i] * omega_motors[i])
         });
 
         ConditionedSignals {
-            angular_acceleration: omega_dot_filtered,
-            specific_thrust: thrust_filtered,
-            actuator_state: actuator_filtered,
-            actuator_measured: measured,
+            angular_acceleration,
+            specific_thrust,
+            actuator_state,
+            actuator_measured,
         }
     }
 
@@ -159,7 +156,6 @@ impl InputSignalConditioning {
         for _ in 0..500 {
             for i in 0..3 {
                 self.gyro_low_pass_filter[i].process(av[i]);
-                self.omega_dot_low_pass_filter[i].process(0.0);
             }
             self.thrust_low_pass_filter.process(thrust_dc);
             for i in 0..4 {
@@ -167,9 +163,6 @@ impl InputSignalConditioning {
             }
         }
 
-        // After 500 samples the LP output ≈ the DC input (gain = 1).
-        // omega_f_prev is set directly from the raw angular velocity since
-        // the filter output has converged to the same value.
         self.omega_filtered_prev = Vector3::new(av[0], av[1], av[2]);
         self.lag_model.omega = motors;
         self.primed = true;
