@@ -22,22 +22,26 @@ pub struct AngularVelocitySetpoint {
     pub roll_rate: f32,
     /// Desired pitch rate (rad/s).
     pub pitch_rate: f32,
-    /// Desired yaw rate (rad/s). Passed through from [`AttitudeSetpoint::yaw_rate`] unchanged.
+    /// Desired yaw rate (rad/s).
     pub yaw_rate: f32,
     /// Collective specific force in g's, Hover ≈ 1.0. Max ≈ 3.0 - 5.0
     pub specific_thrust: f32,
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct AttitudeSetpoint {
     pub timestamp_us: u64,
-    /// Desired roll angle (rad). Positive = right side down (ENU, right-hand rule).
-    pub roll: f32,
-    /// Desired pitch angle (rad). Positive = nose down.
-    pub pitch: f32,
-    /// Desired yaw rate (rad/s). Positive = rotate counter-clockwise viewed from above.
-    pub yaw_rate: f32,
-    /// Collective specific force in g's, Hover ≈ 1.0. Max ≈ 3.0 - 5.0
+    /// Desired attitude quaternion, stored `[x, y, z, w]` (scalar last, nalgebra
+    /// storage order). Same convention as [`VehicleState::attitude`].
+    /// Active rotation: body FLU → world ENU.
+    pub attitude: [f32; 4],
+    /// Collective specific force in g's. Hover ≈ 1.0.
     pub specific_thrust: f32,
+}
+
+impl Default for AttitudeSetpoint {
+    fn default() -> Self {
+        Self { timestamp_us: 0, attitude: [0.0, 0.0, 0.0, 1.0], specific_thrust: 1.0 }
+    }
 }
