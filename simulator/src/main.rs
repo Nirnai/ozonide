@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use models::DisturbanceType;
-use ozonide_core::msgs::{ActuatorCommand, ImuData};
+use ozonide_core::msgs::{ActuatorCommand, ImuData, ActuatorTelemetry};
 use nalgebra::Vector3;
 
 /// Returns `(throttle_norm, omega_hover_rad_s)` for level hover.
@@ -93,9 +93,10 @@ async fn main() {
 
     // Physics + IMU loop on a dedicated OS thread.
     let sitl_sock = UdpSocket::bind("0.0.0.0:0").expect("bind ephemeral port");
-    sitl_sock
-        .connect("127.0.0.1:5005")
-        .expect("connect to SITL");
+    sitl_sock.connect("127.0.0.1:5005").expect("connect to SITL IMU port");
+
+    let motor_sock = UdpSocket::bind("0.0.0.0:0").expect("bind motor telemetry port");
+    motor_sock.connect("127.0.0.1:5007").expect("connect to SITL motor telemetry port");
 
     let actuator_physics = Arc::clone(&actuator_commands);
     let noise_white_flag = Arc::clone(&noise_white);
@@ -195,6 +196,19 @@ async fn main() {
                 let sample: ImuData = model.measure(&state, &state_dot, sim_time_us, &mut rng);
                 if let Ok(n) = postcard::to_slice(&sample, &mut buf) {
                     sitl_sock.send(n).ok();
+                }
+
+                let actuator_telemetry = ActuatorTelemetry {
+                    timestamp_us: sim_time_us,
+                    motor_speed: [
+                        state.motor_angular_velocity[0] as f32,
+                        state.motor_angular_velocity[1] as f32,
+                        state.motor_angular_velocity[2] as f32,
+                        state.motor_angular_velocity[3] as f32,
+                    ],
+                };
+                if let Ok(n) = postcard::to_slice(&actuator_telemetry, &mut buf) {
+                    motor_sock.send(n).ok();
                 }
 
                 let sf_world = state_dot.linear_acceleration

@@ -5,15 +5,18 @@ use ozonide_core::control::indi::AngularVelocityController;
 use ozonide_core::estimation::ComplementaryAttitudeEstimator;
 
 mod actuator_simulated;
+mod actuator_telemetry_simulated;
 mod imu_simulated;
 mod setpoint_simulated;
 mod tasks;
 
 use actuator_simulated::ActuatorSimulated;
+use actuator_telemetry_simulated::ActuatorTelemetrySimulated;
 use imu_simulated::ImuSimulated;
 use setpoint_simulated::SetpointSimulated;
 
 static IMU: StaticCell<ImuSimulated> = StaticCell::new();
+static ACTUATOR_TELEMETRY: StaticCell<ActuatorTelemetrySimulated> = StaticCell::new();
 static ATTITUDE_ESTIMATOR: StaticCell<ComplementaryAttitudeEstimator> = StaticCell::new();
 static CONTROLLER: StaticCell<AngularVelocityController> = StaticCell::new();
 static SETPOINT_SOURCE: StaticCell<SetpointSimulated> = StaticCell::new();
@@ -26,6 +29,9 @@ async fn main(spawner: Spawner) {
 
     let imu = IMU.init(ImuSimulated::new());
     spawner.spawn(tasks::imu_task(imu).unwrap());
+
+    let actuator_telemetry = ACTUATOR_TELEMETRY.init(ActuatorTelemetrySimulated::new());
+    spawner.spawn(tasks::actuator_telemetry_task(actuator_telemetry).unwrap());
 
     let attitude_estimator = ATTITUDE_ESTIMATOR.init(ComplementaryAttitudeEstimator::new(0.98));
     spawner.spawn(tasks::attitude_estimation_task(attitude_estimator).unwrap());

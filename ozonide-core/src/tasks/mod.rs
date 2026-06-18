@@ -9,11 +9,13 @@
 mod actuator_task;
 mod control_task;
 mod imu_task;
+mod actuator_telemetry_task;
 mod rate_monitor;
 mod state_estimation_task;
 
 pub use actuator_task::actuator_task;
 pub use control_task::control_task;
 pub use imu_task::imu_task;
+pub use actuator_telemetry_task::actuator_telemetry_task;
 pub use rate_monitor::rate_monitor;
 pub use state_estimation_task::state_estimation_task;

@@ -125,12 +125,18 @@ impl StateEstimator for ComplementaryAttitudeEstimator {
         let q = UnitQuaternion::from_euler_angles(self.roll, self.pitch, self.yaw);
         let c = q.coords; // nalgebra stores [x, y, z, w]
 
+        let (motor_speed, motor_valid) = match sensor_data.actuator {
+            Some(m) => (m.motor_speed, StateValidity::MOTOR_SPEED),
+            None => ([0.0; 4], StateValidity::NONE),
+        };
+
         VehicleState {
             timestamp_us: imu.timestamp_us,
-            valid: StateValidity::ATTITUDE,
+            valid: StateValidity::ATTITUDE.with(motor_valid),
             attitude: [c.x, c.y, c.z, c.w],
             angular_velocity: imu.angular_velocity,
             specific_force: imu.specific_force,
+            motor_speed,
             ..VehicleState::default()
         }
     }
@@ -173,7 +179,7 @@ mod tests {
     }
 
     fn sensor(imu: &ImuData) -> SensorData<'_> {
-        SensorData { imu: Some(imu), motor: None, battery: None }
+        SensorData { imu: Some(imu), actuator: None, battery: None }
     }
 
     #[test]

@@ -7,13 +7,13 @@
 mod actuator_command;
 mod battery_status;
 mod imu_data;
-mod motor_telemetry;
+mod actuator_telemetry;
 mod setpoints;
 mod vehicle_state;
 
 pub use actuator_command::ActuatorCommand;
 pub use battery_status::BatteryStatus;
 pub use imu_data::ImuData;
-pub use motor_telemetry::MotorTelemetry;
+pub use actuator_telemetry::ActuatorTelemetry;
 pub use setpoints::{AttitudeSetpoint, AngularVelocitySetpoint, AngularAccelerationSetpoint};
 pub use vehicle_state::{StateValidity, VehicleState, STANDARD_GRAVITY};

@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 /// IMU sample time — consumers should age-gate stale frames.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Serialize, Deserialize)]
-pub struct MotorTelemetry {
+pub struct ActuatorTelemetry {
     /// Timestamp when the ESC telemetry frame was received (µs since boot).
     pub timestamp_us: u64,
     /// Mechanical angular speed Ω per motor, rad/s. Order: `[FR, RL, FL, RR]`.

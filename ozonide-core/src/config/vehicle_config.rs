@@ -75,8 +75,9 @@ impl VehicleConfig {
     /// Returns `(u_min, u_max)` where `u_min` is the idle floor and `u_max`
     /// corresponds to full throttle.
     pub fn actuator_limits(&self) -> (f32, f32) {
-        let u_min = (self.idle_throttle * self.motor_omega_max).powi(2);
-        let u_max = self.motor_omega_max.powi(2);
+        let omega_idle = self.idle_throttle * self.motor_omega_max;
+        let u_min = omega_idle * omega_idle;
+        let u_max = self.motor_omega_max * self.motor_omega_max;
         (u_min, u_max)
     }
 

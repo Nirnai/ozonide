@@ -1,4 +1,4 @@
-use crate::msgs::{BatteryStatus, ImuData, MotorTelemetry, VehicleState};
+use crate::msgs::{BatteryStatus, ImuData, ActuatorTelemetry, VehicleState};
 
 /// A short-lived bundle of sensor readings passed to [`StateEstimator::update`]
 /// on each estimation cycle.
@@ -14,9 +14,9 @@ use crate::msgs::{BatteryStatus, ImuData, MotorTelemetry, VehicleState};
 pub struct SensorData<'a> {
     /// Latest IMU sample. `None` if IMU is not available in this configuration.
     pub imu: Option<&'a ImuData>,
-    /// Latest motor telemetry (eRPM-derived Ω, rad/s). `None` until first
+    /// Latest actuator telemetry (eRPM-derived Ω, rad/s). `None` until first
     /// frame or on dropout — maps to `VehicleState::motor_speed_valid`.
-    pub motor: Option<&'a MotorTelemetry>,
+    pub actuator: Option<&'a ActuatorTelemetry>,
     /// Latest battery measurement. Slowly varying; staleness is harmless.
     pub battery: Option<&'a BatteryStatus>,
 }

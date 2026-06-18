@@ -27,7 +27,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{self, Watch};
 
-use crate::msgs::{ActuatorCommand, ImuData, VehicleState};
+use crate::msgs::{ActuatorCommand, ActuatorTelemetry, ImuData, VehicleState};
 
 pub const MAX_SUBS: usize = 4;
 
@@ -156,7 +156,6 @@ declare_topics! {
     /// Published by the control task after allocation.
     ACTUATOR_TOPIC => ActuatorCommand,
 
-    // TODO: 
-    // MotorTelemetry
-    // BatteryVoltage
+    /// Published by the actuator telemetry task when ESC frames arrive (SITL: simulator motor Ω).
+    ACTUATOR_TELEMETRY_TOPIC => ActuatorTelemetry,
 }
