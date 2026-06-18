@@ -1,67 +1,51 @@
-use ozonide_core::control::{AttitudeGains, AngularVelocityGains, CascadedPidController, PidGains};
-use ozonide_core::msgs::AttitudeSetpoint;
+use nalgebra::Vector3;
+
+use ozonide_core::config::VehicleConfig;
+use ozonide_core::control::indi::{
+    AngularVelocityController, ControlAllocator, InputSignalConditioning, InverseActuatorModel,
+};
+use ozonide_core::msgs::AngularVelocitySetpoint;
 
 use crate::setpoint_simulated::SetpointSimulated;
 
-/// Hover setpoint: wings level, zero yaw rate, exact hover thrust.
-///
-/// Derived from simulator parameters (parameters.rs / actuator_model.rs):
-///   mass = 0.5 kg,  g = 9.80665 m/s²,  k_t = 5.5e-7 N/(rad/s)²,  ω_max = 3000 rad/s
-///   ω_hover   = sqrt(mass · g / (4 · k_t)) = sqrt(2_228_784.09) ≈ 1492.91 rad/s
-///   throttle  = ω_hover / ω_max             ≈ 0.4976
-const HOVER_SETPOINT: AttitudeSetpoint = AttitudeSetpoint {
-    roll: 0.0,
-    pitch: 0.0,
+/// Control loop sample rate (Hz). Must match the IMU publish rate.
+const FS: f32 = 1000.0;
+
+/// Signal conditioning cutoff (Hz). Trades ω̇ noise for loop phase margin.
+/// Tune jointly with `RATE_GAIN` once the loop is confirmed stable.
+const F_CUT: f32 = 20.0;
+
+/// Rate-P gains [roll, pitch, yaw] in s⁻¹.
+/// Sets the closed-loop bandwidth of the rate-tracking loop: Kp = 1/τ.
+/// Conservative starting point — increase once SITL confirms stability.
+const RATE_GAIN: [f32; 3] = [10.0, 10.0, 5.0];
+
+/// Hover setpoint: zero angular rates, 1 g specific thrust.
+const HOVER_SETPOINT: AngularVelocitySetpoint = AngularVelocitySetpoint {
+    timestamp_us: 0,
+    roll_rate: 0.0,
+    pitch_rate: 0.0,
     yaw_rate: 0.0,
-    thrust: 0.4976,
+    specific_thrust: 1.0,
 };
 
-/// Outer-loop (angle) gains.
-///
-/// Output is a rate setpoint in rad/s, capped at ±3 rad/s (~170 °/s).
-/// D term is left at zero — the inner rate loop already provides damping.
-fn attitude_gains() -> AttitudeGains {
-    let axis = PidGains {
-        kp: 4.0,
-        ki: 0.0,
-        kd: 0.0,
-        integral_limit: 0.0,
-        output_limit: 3.0,
-    };
-    AttitudeGains {
-        roll_angle_control_gains: axis,
-        pitch_angle_control_gains: axis,
-    }
-}
+pub fn make_controller() -> AngularVelocityController {
+    let cfg = VehicleConfig::default();
+    let (u_min, u_max) = cfg.actuator_limits();
+    let (c0, c1) = cfg.motor_model_coefficients();
+    let v = cfg.battery_nominal_voltage;
 
-/// Inner-loop (rate) gains.
-///
-/// Output is a normalised torque in [-1, 1] fed to the mixer.
-/// Yaw uses lower gains — higher inertia, weaker actuator authority.
-fn angular_velocity_gains() -> AngularVelocityGains {
-    let roll_pitch = PidGains {
-        kp: 0.15,
-        ki: 0.05,
-        kd: 0.05,
-        integral_limit: 0.3,
-        output_limit: 0.5,
-    };
-    let yaw = PidGains {
-        kp: 0.10,
-        ki: 0.02,
-        kd: 0.00,
-        integral_limit: 0.3,
-        output_limit: 0.5,
-    };
-    AngularVelocityGains {
-        roll_rate_control_gains: roll_pitch,
-        pitch_rate_control_gains: roll_pitch,
-        yaw_rate_control_gains: yaw,
-    }
-}
+    let conditioning = InputSignalConditioning::new(F_CUT, FS, cfg.motor_time_constant);
 
-pub fn make_controller() -> CascadedPidController {
-    CascadedPidController::new(attitude_gains(), angular_velocity_gains())
+    let allocator = ControlAllocator::new(cfg.effectiveness_matrix(), u_min, u_max)
+        .expect("VehicleConfig::default yields a valid effectiveness matrix");
+
+    let output_map = core::array::from_fn(|_| {
+        InverseActuatorModel::new(c0, c1, v, v, cfg.idle_throttle)
+            .expect("VehicleConfig::default yields valid motor model parameters")
+    });
+
+    AngularVelocityController::new(conditioning, allocator, output_map, Vector3::from(RATE_GAIN))
 }
 
 pub fn make_setpoint_source() -> SetpointSimulated {
@@ -70,7 +54,7 @@ pub fn make_setpoint_source() -> SetpointSimulated {
 
 #[embassy_executor::task]
 pub async fn control_task(
-    controller: &'static mut CascadedPidController,
+    controller: &'static mut AngularVelocityController,
     setpoint_source: &'static mut SetpointSimulated,
 ) {
     ozonide_core::tasks::control_task(controller, setpoint_source).await;

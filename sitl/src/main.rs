@@ -1,7 +1,7 @@
 use embassy_executor::Spawner;
 use static_cell::StaticCell;
 
-use ozonide_core::control::CascadedPidController;
+use ozonide_core::control::indi::AngularVelocityController;
 use ozonide_core::estimation::ComplementaryAttitudeEstimator;
 
 mod actuator_simulated;
@@ -15,7 +15,7 @@ use setpoint_simulated::SetpointSimulated;
 
 static IMU: StaticCell<ImuSimulated> = StaticCell::new();
 static ATTITUDE_ESTIMATOR: StaticCell<ComplementaryAttitudeEstimator> = StaticCell::new();
-static CONTROLLER: StaticCell<CascadedPidController> = StaticCell::new();
+static CONTROLLER: StaticCell<AngularVelocityController> = StaticCell::new();
 static SETPOINT_SOURCE: StaticCell<SetpointSimulated> = StaticCell::new();
 static ACTUATOR: StaticCell<ActuatorSimulated> = StaticCell::new();
 

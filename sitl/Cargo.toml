@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 ozonide-core     = { path = "../ozonide-core", features = ["log", "std"] }
+nalgebra         = { version = "0.35.0", default-features = false, features = ["libm"] }
 embassy-executor = { workspace = true, features = ["platform-std", "executor-thread"] }
 embassy-time     = { workspace = true, features = ["std"] }
 critical-section = { version = "1", features = ["std"] }
