@@ -11,6 +11,7 @@
 //! - [`tasks`] — async task bodies shared across binaries
 #![no_std]
 
+pub mod config;
 pub mod control;
 pub mod estimation;
 pub mod filter;
