@@ -5,6 +5,8 @@ use crate::msgs::{VehicleState, STANDARD_GRAVITY};
 
 /// One sample's conditioned outputs, mutually phase-aligned.
 pub struct ConditionedSignals {
+    /// Filtered angular velocity ω_f (rad/s²). Used for the rate-P term.
+    pub omega_filtered: Vector3<f32>,
     /// Filtered angular acceleration estimate ω̇_f (rad/s²).
     pub angular_acceleration: Vector3<f32>,
     /// Filtered specific thrust in g's: body-z specific force / g.
@@ -125,6 +127,7 @@ impl InputSignalConditioning {
         });
 
         ConditionedSignals {
+            omega_filtered,
             angular_acceleration,
             specific_thrust,
             actuator_state,
