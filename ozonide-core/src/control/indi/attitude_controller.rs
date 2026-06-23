@@ -1,6 +1,6 @@
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 
-use crate::msgs::{AngularVelocitySetpoint, AttitudeSetpoint, VehicleState};
+use crate::msgs::{AngularRateSetpoint, AttitudeSetpoint, VehicleState};
 
 /// Stateless quaternion attitude P-controller.
 ///
@@ -32,7 +32,7 @@ impl AttitudeController {
     }
 
     /// Compute the angular rate setpoint for one control cycle.
-    pub fn compute(&self, state: &VehicleState, setpoint: &AttitudeSetpoint) -> AngularVelocitySetpoint {
+    pub fn compute(&self, state: &VehicleState, setpoint: &AttitudeSetpoint) -> AngularRateSetpoint {
         let q_meas = state.attitude();
         let [x, y, z, w] = setpoint.attitude;
         let q_des = UnitQuaternion::new_normalize(Quaternion::new(w, x, y, z));
@@ -43,7 +43,7 @@ impl AttitudeController {
         let sign = if q_err.w >= 0.0 { 1.0_f32 } else { -1.0_f32 };
         let phi_err = sign * 2.0 * q_err.vector();
 
-        AngularVelocitySetpoint {
+        AngularRateSetpoint {
             timestamp_us: setpoint.timestamp_us,
             roll_rate:       self.gain[0] * phi_err[0],
             pitch_rate:      self.gain[1] * phi_err[1],

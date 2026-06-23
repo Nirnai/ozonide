@@ -1,132 +1,178 @@
-use nalgebra::{UnitQuaternion, Vector3};
+use nalgebra::Vector3;
 
-use crate::msgs::{AttitudeSetpoint, VelocitySetpoint, VehicleState};
+use crate::msgs::{AttitudeSetpoint, VehicleState, VelocitySetpoint, STANDARD_GRAVITY};
 
-/// Stateless horizontal velocity P-controller (outer loop).
-///
-/// Maps a world-frame (ENU) velocity error to a desired tilt [`AttitudeSetpoint`]
-/// while preserving the vehicle's current yaw heading.
-///
-/// # Sign convention (FLU body, ENU world)
+use super::incremental_inversion::IncrementalInversion;
+use super::specific_force_conditioning::SpecificForceConditioning;
+use super::thrust_vector_decomposition::ThrustVectorDecomposition;
+
+/// Outer INDI loop: velocity error → desired specific force → INDI increment →
+/// thrust vector → [`AttitudeSetpoint`]. Structurally the mirror of
+/// [`AngularRateController`](super::angular_rate_controller::AngularRateController),
+/// one cascade level up.
 ///
 /// ```text
-/// Ry(pitch) * z_body = [sin(pitch), 0, cos(pitch)]
-///   → pitch > 0  →  East (+x) thrust
-///
-/// Rx(roll)  * z_body = [0, -sin(roll), cos(roll)]
-///   → roll < 0   →  North (+y) thrust
+/// velocity-P:        a_des = K · (v_des − v̂)            (world ENU)
+/// gravity feedfwd:   f_des = a_des + [0, 0, g]          (desired specific force, m/s²)
+/// INDI increment:    τ = u₀ + B⁻¹·(f_des − f̂)           (B = I)
+/// output map:        τ → AttitudeSetpoint               (ThrustVectorDecomposition)
 /// ```
 ///
-/// Therefore:  `pitch_des = Kp * v_err_east`,  `roll_des = −Kp * v_err_north`.
+/// # Disturbance rejection
+///
+/// The two arguments to the increment come from *different sources*, which is
+/// what makes this real INDI rather than a direct command:
+/// - `f̂` (ν̂) — measured specific force (accelerometer), **includes** the
+///   disturbance (wind, drag);
+/// - `u₀` — thrust the motors actually produce, modeled from RPM, **excludes** it.
+///
+/// So `τ = u₀ + (f_des − f̂) = f_des − (f̂ − u₀) = f_des − d̂`, where `d̂ = f̂ − u₀`
+/// is the specific-force disturbance estimate. INDI here is a disturbance
+/// observer; it rejects what the accelerometer sees that the motors are not
+/// producing. `u₀` is re-anchored to the actual thrust every cycle (not
+/// accumulated), so there is no integrator and no windup.
+///
+/// Working in specific-force units keeps `B = I` (mass lives in the RPM thrust
+/// model for `u₀`, not in `B`). The INDI clamp runs with infinite limits; tilt
+/// and thrust saturation live in the decomposition.
+///
+/// Stateful only through the conditioning filters — needs [`reset`](Self::reset)
+/// on arm to settle them.
 pub struct VelocityController {
-    /// Horizontal proportional gain (s⁻¹). Maps m/s velocity error to rad tilt.
-    pub gain: f32,
-    /// Maximum tilt angle (rad). Saturates roll and pitch independently.
-    pub max_tilt: f32,
-    /// Vertical velocity proportional gain. Maps m/s climb error to g's of extra thrust.
-    pub gain_z: f32,
+    /// Per-axis velocity P gain [East, North, Up], units s⁻¹ (m/s² per m/s).
+    velocity_gain: Vector3<f32>,
+    conditioning: SpecificForceConditioning,
+    /// Outer INDI law over the 3-D specific force. Effectiveness is identity.
+    inversion: IncrementalInversion<3>,
+    decomposition: ThrustVectorDecomposition,
 }
 
 impl VelocityController {
-    pub fn new(gain: f32, max_tilt: f32, gain_z: f32) -> Self {
-        Self { gain, max_tilt, gain_z }
+    pub fn new(
+        velocity_gain: Vector3<f32>,
+        conditioning: SpecificForceConditioning,
+        inversion: IncrementalInversion<3>,
+        decomposition: ThrustVectorDecomposition,
+    ) -> Self {
+        Self { velocity_gain, conditioning, inversion, decomposition }
     }
 
-    /// Compute the attitude setpoint for one control cycle.
-    pub fn compute(&self, state: &VehicleState, setpoint: &VelocitySetpoint) -> AttitudeSetpoint {
-        let v_meas = state.linear_velocity();
-        let v_des = Vector3::from(setpoint.linear_velocity);
-        let v_err = v_des - v_meas;
+    /// One outer-loop cycle. Returns the attitude setpoint for the cascade.
+    pub fn step(&mut self, state: &VehicleState, setpoint: &VelocitySetpoint) -> AttitudeSetpoint {
+        let v_err = Vector3::from(setpoint.linear_velocity) - state.linear_velocity();
+        let a_des = self.velocity_gain.component_mul(&v_err);
+        // Gravity feed-forward: f = a − g_vec, g_vec = [0,0,−g] in ENU.
+        let f_des = a_des + Vector3::new(0.0, 0.0, STANDARD_GRAVITY);
 
-        let pitch_des = (self.gain * v_err[0]).clamp(-self.max_tilt, self.max_tilt);
-        let roll_des  = (-self.gain * v_err[1]).clamp(-self.max_tilt, self.max_tilt);
+        let conditioned = self.conditioning.step(state);
+        // u₀ = modeled thrust (RPM), ν̂ = measured specific force (incl. disturbance).
+        let tau = self
+            .inversion
+            .compute(&f_des, &conditioned.specific_force, &conditioned.thrust);
 
-        // Preserve current yaw; apply desired tilt in the yaw-aligned body frame.
+        // Preserve current heading; the thrust vector only fixes roll/pitch.
         let yaw = state.attitude().euler_angles().2;
-        let q_des = UnitQuaternion::from_euler_angles(0.0, 0.0, yaw)
-            * UnitQuaternion::from_euler_angles(0.0, pitch_des, 0.0)
-            * UnitQuaternion::from_euler_angles(roll_des, 0.0, 0.0);
+        self.decomposition.compute(tau, yaw, setpoint.yaw_rate, setpoint.timestamp_us)
+    }
 
-        let specific_thrust = (1.0 + self.gain_z * v_err[2]).clamp(0.2, 2.5);
-
-        let c = q_des.coords;
-        AttitudeSetpoint {
-            timestamp_us: setpoint.timestamp_us,
-            attitude: [c.x, c.y, c.z, c.w],
-            yaw_rate: setpoint.yaw_rate,
-            specific_thrust,
-        }
+    /// Warm-start the conditioning filters on arm / mode change.
+    pub fn reset(&mut self, state: &VehicleState) {
+        self.conditioning.reset(state);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::msgs::{StateValidity, VehicleState};
+    use crate::msgs::StateValidity;
+    use nalgebra::{Matrix3, Vector4};
 
-    fn ctrl() -> VelocityController {
-        VelocityController::new(0.3, 0.5, 0.5)
+    const FS: f32 = 1000.0;
+    const F_CUT: f32 = 10.0;
+    const G: f32 = STANDARD_GRAVITY;
+    const HOVER_OMEGA: f32 = 500.0;
+    const THRUST_COEFF: f32 = 1.0 / (4.0 * HOVER_OMEGA * HOVER_OMEGA);
+
+    fn controller() -> VelocityController {
+        let conditioning = SpecificForceConditioning::new(F_CUT, FS, Vector4::repeat(THRUST_COEFF));
+        let inversion = IncrementalInversion::<3>::new_uniform(
+            Matrix3::identity(),
+            f32::NEG_INFINITY,
+            f32::INFINITY,
+        )
+        .unwrap();
+        let decomposition = ThrustVectorDecomposition::new(0.3, 0.2, 2.5);
+        VelocityController::new(Vector3::new(1.0, 1.0, 1.5), conditioning, inversion, decomposition)
     }
 
-    fn state_with_vel(vx: f32, vy: f32, vz: f32) -> VehicleState {
+    /// Constant-velocity state (a = 0 → specific force is hover [0,0,g]). No motor
+    /// telemetry, so the thrust model falls back to f̂ (no disturbance rejection).
+    fn state_moving(vx: f32, vy: f32, vz: f32) -> VehicleState {
         VehicleState {
             linear_velocity: [vx, vy, vz],
-            valid: StateValidity::ATTITUDE.with(StateValidity::VELOCITY),
+            specific_force: [0.0, 0.0, G],
             attitude: [0.0, 0.0, 0.0, 1.0],
+            valid: StateValidity::ATTITUDE.with(StateValidity::VELOCITY),
             ..VehicleState::default()
         }
     }
 
-    fn sp(vx: f32, vy: f32, vz: f32) -> VelocitySetpoint {
-        VelocitySetpoint { timestamp_us: 0, linear_velocity: [vx, vy, vz], yaw_rate: 0.0 }
+    fn hold() -> VelocitySetpoint {
+        VelocitySetpoint { timestamp_us: 0, linear_velocity: [0.0, 0.0, 0.0], yaw_rate: 0.0 }
     }
 
     #[test]
-    fn zero_error_produces_level_attitude() {
-        let out = ctrl().compute(&state_with_vel(1.0, 2.0, 0.0), &sp(1.0, 2.0, 0.0));
-        let [x, y, z, w] = out.attitude;
-        // q should be identity (no tilt, no yaw)
-        assert!(x.abs() < 1e-4, "x={x}");
-        assert!(y.abs() < 1e-4, "y={y}");
-        assert!(z.abs() < 1e-4, "z={z}");
-        assert!((w - 1.0).abs() < 1e-4, "w={w}");
-        assert!((out.specific_thrust - 1.0).abs() < 1e-4);
+    fn hover_hold_produces_level_attitude_unity_thrust() {
+        let mut c = controller();
+        let state = state_moving(0.0, 0.0, 0.0);
+        c.reset(&state);
+        let sp = c.step(&state, &hold());
+        let [x, y, z, w] = sp.attitude;
+        assert!(x.abs() < 1e-3 && y.abs() < 1e-3 && z.abs() < 1e-3, "expected level, got {:?}", sp.attitude);
+        assert!((w - 1.0).abs() < 1e-3);
+        assert!((sp.specific_thrust - 1.0).abs() < 1e-2, "thrust={}", sp.specific_thrust);
     }
 
     #[test]
-    fn east_velocity_error_produces_positive_pitch() {
-        // Want to go East, currently stationary → need to pitch forward (positive pitch).
-        let out = ctrl().compute(&state_with_vel(0.0, 0.0, 0.0), &sp(1.0, 0.0, 0.0));
-        // Extract pitch from quaternion: q = Ry(pitch) → y-component of Im(q) = sin(pitch/2)
-        // For small pitch_des ≈ 0.3 rad, pitch/2 ≈ 0.15 → Im_y ≈ 0.149
-        let [x, y, _z, _w] = out.attitude;
-        assert!(y > 0.0, "expected positive pitch tilt, got Im_y={y}");
-        assert!(x.abs() < 1e-4, "expected no roll, got Im_x={x}");
+    fn moving_east_commands_west_tilt() {
+        let mut c = controller();
+        let state = state_moving(1.0, 0.0, 0.0);
+        c.reset(&state);
+        let sp = c.step(&state, &hold());
+        let [x, y, _z, _w] = sp.attitude;
+        assert!(y < 0.0, "expected negative pitch (tilt west), got Im_y={y}");
+        assert!(x.abs() < 1e-3, "expected no roll, got Im_x={x}");
     }
 
     #[test]
-    fn north_velocity_error_produces_negative_roll() {
-        // Want to go North, currently stationary → need negative roll.
-        let out = ctrl().compute(&state_with_vel(0.0, 0.0, 0.0), &sp(0.0, 1.0, 0.0));
-        let [x, y, _z, _w] = out.attitude;
-        assert!(x < 0.0, "expected negative roll tilt, got Im_x={x}");
-        assert!(y.abs() < 1e-4, "expected no pitch, got Im_y={y}");
+    fn descending_below_setpoint_raises_collective() {
+        let mut c = controller();
+        let state = state_moving(0.0, 0.0, -1.0);
+        c.reset(&state);
+        let sp = c.step(&state, &hold());
+        assert!(sp.specific_thrust > 1.0, "expected thrust > 1g when sinking, got {}", sp.specific_thrust);
     }
 
+    /// With RPM telemetry, a specific-force disturbance (wind) is rejected: the
+    /// controller tilts into it even at zero velocity error.
     #[test]
-    fn tilt_is_clamped() {
-        // Very large velocity error should be saturated.
-        let out = ctrl().compute(&state_with_vel(0.0, 0.0, 0.0), &sp(100.0, 0.0, 0.0));
-        let [_x, y, _z, w] = out.attitude;
-        let pitch = 2.0 * y.atan2(w);
-        assert!(pitch <= 0.5 + 1e-4, "pitch={pitch} exceeded max_tilt");
-    }
-
-    #[test]
-    fn yaw_rate_passes_through() {
-        let mut s = sp(0.0, 0.0, 0.0);
-        s.yaw_rate = 0.5;
-        let out = ctrl().compute(&state_with_vel(0.0, 0.0, 0.0), &s);
-        assert!((out.yaw_rate - 0.5).abs() < 1e-6);
+    fn rejects_specific_force_disturbance_with_rpm() {
+        let mut c = controller();
+        // Hover hold, level, hover RPM, but accelerometer sees an eastward wind.
+        let state = VehicleState {
+            linear_velocity: [0.0, 0.0, 0.0],
+            specific_force: [2.0, 0.0, G], // +x disturbance
+            attitude: [0.0, 0.0, 0.0, 1.0],
+            motor_speed: [HOVER_OMEGA; 4],
+            valid: StateValidity::ATTITUDE
+                .with(StateValidity::VELOCITY)
+                .with(StateValidity::MOTOR_SPEED),
+            ..VehicleState::default()
+        };
+        c.reset(&state);
+        let sp = c.step(&state, &hold());
+        // Tilt west (negative pitch) to push back against the eastward wind.
+        let [_x, y, _z, _w] = sp.attitude;
+        assert!(y < -1e-3, "expected west tilt to reject wind, got Im_y={y}");
     }
 }

@@ -16,7 +16,7 @@ pub struct AngularAccelerationSetpoint {
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Serialize, Deserialize, Default)]
-pub struct AngularVelocitySetpoint {
+pub struct AngularRateSetpoint {
     pub timestamp_us: u64,
     /// Desired roll rate (rad/s).
     pub roll_rate: f32,

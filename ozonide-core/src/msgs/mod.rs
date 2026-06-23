@@ -18,6 +18,6 @@ pub use battery_status::BatteryStatus;
 pub use ground_truth::GroundTruthState;
 pub use imu_data::ImuData;
 pub use setpoints::{
-    AngularAccelerationSetpoint, AngularVelocitySetpoint, AttitudeSetpoint, VelocitySetpoint,
+    AngularAccelerationSetpoint, AngularRateSetpoint, AttitudeSetpoint, VelocitySetpoint,
 };
 pub use vehicle_state::{StateValidity, VehicleState, STANDARD_GRAVITY};

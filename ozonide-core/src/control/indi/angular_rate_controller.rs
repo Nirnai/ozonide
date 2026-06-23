@@ -1,13 +1,13 @@
 use nalgebra::{Vector3, Vector4};
 
-use crate::msgs::{ActuatorCommand, AngularAccelerationSetpoint, AngularVelocitySetpoint, VehicleState};
+use crate::msgs::{ActuatorCommand, AngularAccelerationSetpoint, AngularRateSetpoint, VehicleState};
 use crate::traits::Controller;
 
 use super::incremental_inversion::IncrementalInversion;
 use super::input_signal_conditioning::InputSignalConditioning;
 use super::inverse_actuator_model::InverseActuatorModel;
 
-pub struct AngularVelocityController {
+pub struct AngularRateController {
     conditioning: InputSignalConditioning,
     /// INDI law over the 4-D virtual control [αx, αy, αz, specific thrust].
     inversion: IncrementalInversion<4>,
@@ -18,7 +18,7 @@ pub struct AngularVelocityController {
     rate_gain: Vector3<f32>,
 }
 
-impl AngularVelocityController {
+impl AngularRateController {
     pub fn new(
         conditioning: InputSignalConditioning,
         inversion: IncrementalInversion<4>,
@@ -29,10 +29,10 @@ impl AngularVelocityController {
     }
 }
 
-impl Controller for AngularVelocityController {
-    type Setpoint = AngularVelocitySetpoint;
+impl Controller for AngularRateController {
+    type Setpoint = AngularRateSetpoint;
 
-    fn step(&mut self, state: &VehicleState, setpoint: &AngularVelocitySetpoint) -> ActuatorCommand {
+    fn step(&mut self, state: &VehicleState, setpoint: &AngularRateSetpoint) -> ActuatorCommand {
         let cond = self.conditioning.step(state);
 
         // Rate-P: translate rate error into an angular acceleration setpoint.
