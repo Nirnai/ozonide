@@ -47,7 +47,7 @@ impl AttitudeController {
             timestamp_us: setpoint.timestamp_us,
             roll_rate:       self.gain[0] * phi_err[0],
             pitch_rate:      self.gain[1] * phi_err[1],
-            yaw_rate:        self.gain[2] * phi_err[2],
+            yaw_rate:        self.gain[2] * phi_err[2] + setpoint.yaw_rate,
             specific_thrust: setpoint.specific_thrust,
         }
     }
@@ -77,7 +77,7 @@ mod tests {
     }
 
     fn sp(attitude: [f32; 4]) -> AttitudeSetpoint {
-        AttitudeSetpoint { timestamp_us: 0, attitude, specific_thrust: 1.0 }
+        AttitudeSetpoint { timestamp_us: 0, attitude, yaw_rate: 0.0, specific_thrust: 1.0 }
     }
 
     #[test]

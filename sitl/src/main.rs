@@ -2,22 +2,25 @@ use embassy_executor::Spawner;
 use static_cell::StaticCell;
 
 use ozonide_core::control::indi::CascadedController;
-use ozonide_core::estimation::ComplementaryAttitudeEstimator;
+use ozonide_core::estimation::PassthroughStateEstimator;
 
 mod actuator_simulated;
 mod actuator_telemetry_simulated;
+mod ground_truth_simulated;
 mod imu_simulated;
 mod setpoint_simulated;
 mod tasks;
 
 use actuator_simulated::ActuatorSimulated;
 use actuator_telemetry_simulated::ActuatorTelemetrySimulated;
+use ground_truth_simulated::GroundTruthSimulated;
 use imu_simulated::ImuSimulated;
 use setpoint_simulated::SetpointSimulated;
 
 static IMU: StaticCell<ImuSimulated> = StaticCell::new();
 static ACTUATOR_TELEMETRY: StaticCell<ActuatorTelemetrySimulated> = StaticCell::new();
-static ATTITUDE_ESTIMATOR: StaticCell<ComplementaryAttitudeEstimator> = StaticCell::new();
+static GROUND_TRUTH: StaticCell<GroundTruthSimulated> = StaticCell::new();
+static STATE_ESTIMATOR: StaticCell<PassthroughStateEstimator> = StaticCell::new();
 static CONTROLLER: StaticCell<CascadedController> = StaticCell::new();
 static SETPOINT_SOURCE: StaticCell<SetpointSimulated> = StaticCell::new();
 static ACTUATOR: StaticCell<ActuatorSimulated> = StaticCell::new();
@@ -33,8 +36,11 @@ async fn main(spawner: Spawner) {
     let actuator_telemetry = ACTUATOR_TELEMETRY.init(ActuatorTelemetrySimulated::new());
     spawner.spawn(tasks::actuator_telemetry_task(actuator_telemetry).unwrap());
 
-    let attitude_estimator = ATTITUDE_ESTIMATOR.init(ComplementaryAttitudeEstimator::new(0.98));
-    spawner.spawn(tasks::attitude_estimation_task(attitude_estimator).unwrap());
+    let ground_truth = GROUND_TRUTH.init(GroundTruthSimulated::new());
+    spawner.spawn(tasks::ground_truth_task(ground_truth).unwrap());
+
+    let state_estimator = STATE_ESTIMATOR.init(PassthroughStateEstimator::new());
+    spawner.spawn(tasks::state_estimation_task(state_estimator).unwrap());
 
     let controller = CONTROLLER.init(tasks::make_controller());
     let setpoint_source = SETPOINT_SOURCE.init(tasks::make_setpoint_source());

@@ -36,12 +36,30 @@ pub struct AttitudeSetpoint {
     /// storage order). Same convention as [`VehicleState::attitude`].
     /// Active rotation: body FLU → world ENU.
     pub attitude: [f32; 4],
+    /// Yaw rate feed-through (rad/s), superimposed on the attitude-error yaw
+    /// output. Set by the velocity controller to pass pilot yaw commands through
+    /// the cascade without needing an absolute yaw reference.
+    pub yaw_rate: f32,
     /// Collective specific force in g's. Hover ≈ 1.0.
     pub specific_thrust: f32,
 }
 
 impl Default for AttitudeSetpoint {
     fn default() -> Self {
-        Self { timestamp_us: 0, attitude: [0.0, 0.0, 0.0, 1.0], specific_thrust: 1.0 }
+        Self { timestamp_us: 0, attitude: [0.0, 0.0, 0.0, 1.0], yaw_rate: 0.0, specific_thrust: 1.0 }
     }
+}
+
+/// Desired body velocity in the world (ENU) frame plus yaw rate.
+///
+/// Consumed by the [`VelocityController`](crate::control::indi::VelocityController),
+/// which maps velocity error to a tilt [`AttitudeSetpoint`].
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, Serialize, Deserialize, Default)]
+pub struct VelocitySetpoint {
+    pub timestamp_us: u64,
+    /// Desired velocity in world frame (ENU), m/s. `[East, North, Up]`.
+    pub linear_velocity: [f32; 3],
+    /// Desired yaw rate (rad/s). Passed through to the rate loop unchanged.
+    pub yaw_rate: f32,
 }

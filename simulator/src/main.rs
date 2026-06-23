@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use models::DisturbanceType;
-use ozonide_core::msgs::{ActuatorCommand, ImuData, ActuatorTelemetry};
+use ozonide_core::msgs::{ActuatorCommand, ActuatorTelemetry, GroundTruthState, ImuData};
 use nalgebra::Vector3;
 
 /// Returns `(throttle_norm, omega_hover_rad_s)` for level hover.
@@ -97,6 +97,9 @@ async fn main() {
 
     let motor_sock = UdpSocket::bind("0.0.0.0:0").expect("bind motor telemetry port");
     motor_sock.connect("127.0.0.1:5007").expect("connect to SITL motor telemetry port");
+
+    let gt_sock = UdpSocket::bind("0.0.0.0:0").expect("bind ground truth port");
+    gt_sock.connect("127.0.0.1:5008").expect("connect to SITL ground truth port");
 
     let actuator_physics = Arc::clone(&actuator_commands);
     let noise_white_flag = Arc::clone(&noise_white);
@@ -209,6 +212,25 @@ async fn main() {
                 };
                 if let Ok(n) = postcard::to_slice(&actuator_telemetry, &mut buf) {
                     motor_sock.send(n).ok();
+                }
+
+                let q = state.attitude.coords; // nalgebra storage [x, y, z, w]
+                let ground_truth = GroundTruthState {
+                    timestamp_us: sim_time_us,
+                    position: [
+                        state.position[0] as f32,
+                        state.position[1] as f32,
+                        state.position[2] as f32,
+                    ],
+                    linear_velocity: [
+                        state.linear_velocity[0] as f32,
+                        state.linear_velocity[1] as f32,
+                        state.linear_velocity[2] as f32,
+                    ],
+                    attitude: [q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32],
+                };
+                if let Ok(n) = postcard::to_slice(&ground_truth, &mut buf) {
+                    gt_sock.send(n).ok();
                 }
 
                 let sf_world = state_dot.linear_acceleration

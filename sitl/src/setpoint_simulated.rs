@@ -1,24 +1,23 @@
-use ozonide_core::msgs::AttitudeSetpoint;
+use ozonide_core::msgs::VelocitySetpoint;
 use ozonide_core::traits::SetpointSource;
 
-/// Fixed setpoint source that always returns the same [`AttitudeSetpoint`].
+/// Fixed setpoint source that always returns the same [`VelocitySetpoint`].
 ///
-/// Used in SITL to command a constant attitude. Replace with a topic subscriber
-/// or RC parser when pilot input is wired up.
+/// Used in SITL to command a constant velocity (zero = hover in place).
 pub struct SetpointSimulated {
-    setpoint: AttitudeSetpoint,
+    setpoint: VelocitySetpoint,
 }
 
 impl SetpointSimulated {
-    pub fn new(setpoint: AttitudeSetpoint) -> Self {
+    pub fn new(setpoint: VelocitySetpoint) -> Self {
         Self { setpoint }
     }
 }
 
 impl SetpointSource for SetpointSimulated {
-    type Setpoint = AttitudeSetpoint;
+    type Setpoint = VelocitySetpoint;
 
-    fn latest(&mut self) -> AttitudeSetpoint {
+    fn latest(&mut self) -> VelocitySetpoint {
         self.setpoint
     }
 }

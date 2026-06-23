@@ -1,4 +1,4 @@
-use crate::msgs::{BatteryStatus, ImuData, ActuatorTelemetry, VehicleState};
+use crate::msgs::{BatteryStatus, GroundTruthState, ImuData, ActuatorTelemetry, VehicleState};
 
 /// A short-lived bundle of sensor readings passed to [`StateEstimator::update`]
 /// on each estimation cycle.
@@ -19,6 +19,11 @@ pub struct SensorData<'a> {
     pub actuator: Option<&'a ActuatorTelemetry>,
     /// Latest battery measurement. Slowly varying; staleness is harmless.
     pub battery: Option<&'a BatteryStatus>,
+    /// Ground-truth pose/velocity from the simulator (SITL only). Stands in for
+    /// the position/velocity/attitude a real navigation filter (GPS/VIO) or the
+    /// future UKF will produce from camera + IMU. `None` in configurations
+    /// without an external reference.
+    pub ground_truth: Option<&'a GroundTruthState>,
 }
 
 /// Abstraction over any state estimation algorithm.

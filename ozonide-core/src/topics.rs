@@ -27,7 +27,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{self, Watch};
 
-use crate::msgs::{ActuatorCommand, ActuatorTelemetry, ImuData, VehicleState};
+use crate::msgs::{ActuatorCommand, ActuatorTelemetry, GroundTruthState, ImuData, VehicleState};
 
 pub const MAX_SUBS: usize = 4;
 
@@ -158,4 +158,7 @@ declare_topics! {
 
     /// Published by the actuator telemetry task when ESC frames arrive (SITL: simulator motor Ω).
     ACTUATOR_TELEMETRY_TOPIC => ActuatorTelemetry,
+    /// Published by the ground truth task (SITL only). Carries exact simulator
+    /// position and velocity; merged into VehicleState by the state estimation task.
+    GROUND_TRUTH_STATE_TOPIC => GroundTruthState,
 }

@@ -1,3 +1,3 @@
-mod complementary_attitude_estimator;
+mod passthrough_state_estimator;
 
-pub use complementary_attitude_estimator::ComplementaryAttitudeEstimator;
+pub use passthrough_state_estimator::PassthroughStateEstimator;

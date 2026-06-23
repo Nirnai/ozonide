@@ -129,6 +129,16 @@ impl VehicleState {
     }
 
     #[inline]
+    pub fn linear_velocity(&self) -> Vector3<f32> {
+        Vector3::from(self.linear_velocity)
+    }
+
+    #[inline]
+    pub fn position(&self) -> Vector3<f32> {
+        Vector3::from(self.position)
+    }
+
+    #[inline]
     pub fn angular_velocity(&self) -> Vector3<f32> {
         Vector3::from(self.angular_velocity)
     }

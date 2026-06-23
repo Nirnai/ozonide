@@ -3,9 +3,9 @@ use nalgebra::Vector3;
 use ozonide_core::config::VehicleConfig;
 use ozonide_core::control::indi::{
     AngularVelocityController, CascadedController, ControlAllocator,
-    InputSignalConditioning, InverseActuatorModel,
+    InputSignalConditioning, InverseActuatorModel, VelocityController,
 };
-use ozonide_core::msgs::AttitudeSetpoint;
+use ozonide_core::msgs::VelocitySetpoint;
 
 use crate::setpoint_simulated::SetpointSimulated;
 
@@ -22,11 +22,20 @@ const RATE_GAIN: [f32; 3] = [10.0, 10.0, 5.0];
 /// Must be well below the inner-loop bandwidth to maintain cascade stability.
 const ATTITUDE_GAIN: [f32; 3] = [4.0, 4.0, 2.0];
 
-/// Hover setpoint: level attitude (identity quaternion), 1 g specific thrust.
-const HOVER_SETPOINT: AttitudeSetpoint = AttitudeSetpoint {
+/// Velocity-loop horizontal P gain (rad / (m/s)).
+const VELOCITY_GAIN: f32 = 0.3;
+
+/// Maximum tilt angle commanded by the velocity controller (rad ≈ 17°).
+const MAX_TILT: f32 = 0.3;
+
+/// Vertical velocity P gain (g / (m/s)).
+const VELOCITY_GAIN_Z: f32 = 0.5;
+
+/// Hover setpoint: zero velocity in all axes.
+const HOVER_SETPOINT: VelocitySetpoint = VelocitySetpoint {
     timestamp_us: 0,
-    attitude: [0.0, 0.0, 0.0, 1.0],
-    specific_thrust: 1.0,
+    linear_velocity: [0.0, 0.0, 0.0],
+    yaw_rate: 0.0,
 };
 
 pub fn make_controller() -> CascadedController {
@@ -50,7 +59,9 @@ pub fn make_controller() -> CascadedController {
         Vector3::from(RATE_GAIN),
     );
 
-    CascadedController::new(Vector3::from(ATTITUDE_GAIN), rate)
+    let velocity = VelocityController::new(VELOCITY_GAIN, MAX_TILT, VELOCITY_GAIN_Z);
+
+    CascadedController::new(velocity, Vector3::from(ATTITUDE_GAIN), rate)
 }
 
 pub fn make_setpoint_source() -> SetpointSimulated {
