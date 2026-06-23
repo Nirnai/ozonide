@@ -6,8 +6,8 @@ use crate::msgs::{VehicleState, STANDARD_GRAVITY};
 /// One sample's conditioned outputs, mutually phase-aligned.
 pub struct ConditionedSignals {
     /// Filtered angular velocity ω_f (rad/s²). Used for the rate-P term.
-    pub omega_filtered: Vector3<f32>,
-    /// Filtered angular acceleration estimate ω̇_f (rad/s²).
+    pub angular_rate_filtered: Vector3<f32>,
+    /// Filtered angular acceleration estimate α_f (rad/s²).
     pub angular_acceleration: Vector3<f32>,
     /// Filtered specific thrust in g's: body-z specific force / g.
     /// Body frame is FLU, so at hover `specific_force[2] ≈ +g` → 1.0 here.
@@ -44,7 +44,7 @@ impl ActuatorLagModel {
     }
 }
 
-/// INDI signal conditioning: produces the synchronized (ω̇_f, thrust_f, u₀_f)
+/// INDI signal conditioning: produces the synchronized (α_f, thrust_f, u₀_f)
 /// trio for the increment law.
 ///
 /// # Synchronization invariant
@@ -59,17 +59,17 @@ impl ActuatorLagModel {
 /// # Angular acceleration estimation
 ///
 /// Angular acceleration is estimated by differentiating the **already-filtered**
-/// ω signal, then filtering ω̇ at the same cutoff. Differentiating the raw signal
+/// ω signal, then filtering α at the same cutoff. Differentiating the raw signal
 /// would amplify high-frequency noise by 2πf; differentiating the filtered signal
 /// first squashes that noise at a cost of group delay. Applying the same LPF to
-/// ω̇ afterwards aligns ω and ω̇ in phase — both see exactly two filter delays —
+/// α afterwards aligns ω and α in phase — both see exactly two filter delays —
 /// which the allocation arithmetic requires.
 ///
-/// `f_cut` is a control-design parameter (trades ω̇ noise for loop phase margin)
+/// `f_cut` is a control-design parameter (trades α noise for loop phase margin)
 /// and must be tuned jointly with the rate-loop gains. Typical range: 10–30 Hz.
 pub struct InputSignalConditioning {
     gyro_low_pass_filter: [Filter; 3],
-    omega_filtered_prev: Vector3<f32>,
+    angular_rate_filtered_prev: Vector3<f32>,
     thrust_low_pass_filter: Filter,
     actuator_low_pass_filter: [Filter; 4],
     lag_model: ActuatorLagModel,
@@ -85,7 +85,7 @@ impl InputSignalConditioning {
         let make_low_pass = || lowpass(sample_rate, f_cut, FilterFamily::Bessel, 2);
         Self {
             gyro_low_pass_filter: core::array::from_fn(|_| make_low_pass()),
-            omega_filtered_prev: Vector3::zeros(),
+            angular_rate_filtered_prev: Vector3::zeros(),
             thrust_low_pass_filter: make_low_pass(),
             actuator_low_pass_filter: core::array::from_fn(|_| make_low_pass()),
             lag_model: ActuatorLagModel::new(lag_tau),
@@ -97,20 +97,20 @@ impl InputSignalConditioning {
     pub fn step(&mut self, state: &VehicleState) -> ConditionedSignals {
         // --- Gyro path: filter ONCE, then differentiate. ---
         // d/dt of the filtered rate IS the synchronized angular acceleration:
-        // omega_dot_f = d/dt(H·omega) = H·(true omega_dot), one filter delay,
+        // alpha_f = d/dt(H·angular_rate) = H·(true alpha), one filter delay,
         // matching the actuator and thrust paths. No second filter — adding
         // one would double this path's delay and desync it from u0.
-        let omega_filtered = Vector3::from_fn(|i, _| {
+        let angular_rate_filtered = Vector3::from_fn(|i, _| {
             self.gyro_low_pass_filter[i].process(state.angular_velocity[i])
         });
 
         let angular_acceleration = if self.primed {
-            (omega_filtered - self.omega_filtered_prev) / self.dt
+            (angular_rate_filtered - self.angular_rate_filtered_prev) / self.dt
         } else {
             self.primed = true;
             Vector3::zeros()
         };
-        self.omega_filtered_prev = omega_filtered;
+        self.angular_rate_filtered_prev = angular_rate_filtered;
 
         // --- Thrust path: same single filter. ---
         let specific_thrust = self
@@ -127,7 +127,7 @@ impl InputSignalConditioning {
         });
 
         ConditionedSignals {
-            omega_filtered,
+            angular_rate_filtered,
             angular_acceleration,
             specific_thrust,
             actuator_state,
@@ -166,7 +166,7 @@ impl InputSignalConditioning {
             }
         }
 
-        self.omega_filtered_prev = Vector3::new(av[0], av[1], av[2]);
+        self.angular_rate_filtered_prev = Vector3::new(av[0], av[1], av[2]);
         self.lag_model.omega = motors;
         self.primed = true;
     }
@@ -203,7 +203,7 @@ mod tests {
     const F_CUT: f32 = 20.0;
     const LAG_TAU: f32 = 0.05;
 
-    /// After many steps with constant angular velocity, ω̇ must converge to zero.
+    /// After many steps with constant angular velocity, α must converge to zero.
     #[test]
     fn constant_rate_gives_zero_acceleration() {
         let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);
@@ -215,12 +215,12 @@ mod tests {
         }
 
         let alpha = out.angular_acceleration;
-        assert!(alpha[0].abs() < 0.01, "roll ω̇ = {} (expected ≈ 0)", alpha[0]);
-        assert!(alpha[1].abs() < 0.01, "pitch ω̇ = {} (expected ≈ 0)", alpha[1]);
-        assert!(alpha[2].abs() < 0.01, "yaw ω̇ = {} (expected ≈ 0)", alpha[2]);
+        assert!(alpha[0].abs() < 0.01, "roll α = {} (expected ≈ 0)", alpha[0]);
+        assert!(alpha[1].abs() < 0.01, "pitch α = {} (expected ≈ 0)", alpha[1]);
+        assert!(alpha[2].abs() < 0.01, "yaw α = {} (expected ≈ 0)", alpha[2]);
     }
 
-    /// A step in roll rate must produce a measurable ω̇ transient.
+    /// A step in roll rate must produce a measurable α transient.
     #[test]
     fn rate_step_produces_nonzero_acceleration() {
         let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);
@@ -241,7 +241,7 @@ mod tests {
 
         assert!(
             peak_alpha > 0.5,
-            "roll ω̇ peak = {} (expected > 0.5 rad/s² during 1 rad/s step)",
+            "roll α peak = {} (expected > 0.5 rad/s² during 1 rad/s step)",
             peak_alpha
         );
     }
@@ -318,7 +318,7 @@ mod tests {
         }
     }
 
-    /// After reset, the first step must not spike: ω̇ should start close to zero.
+    /// After reset, the first step must not spike: α should start close to zero.
     #[test]
     fn reset_prevents_startup_spike() {
         let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);

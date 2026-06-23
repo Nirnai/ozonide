@@ -44,7 +44,7 @@ pub struct VehicleConfig {
 
 impl VehicleConfig {
     /// Control effectiveness matrix G mapping actuator vector u = [Ω₀², Ω₁², Ω₂², Ω₃²]
-    /// (rad²/s²) to virtual control [ω̇_roll, ω̇_pitch, ω̇_yaw (rad/s²), specific_thrust (g's)].
+    /// (rad²/s²) to virtual control [α_roll, α_pitch, α_yaw (rad/s²), specific_thrust (g's)].
     ///
     /// Derived from the moment-arm cross products and the blade-element force laws:
     ///

@@ -120,9 +120,9 @@ fn derivative(
         + disturbance_torque;
 
     let linear_acceleration = force_world / params.mass;
-    let i_omega = params.inertia.component_mul(&state.angular_velocity);
+    let angular_momentum = params.inertia.component_mul(&state.angular_velocity);
     let angular_acceleration =
-        (torque_body - state.angular_velocity.cross(&i_omega)).component_div(&params.inertia);
+        (torque_body - state.angular_velocity.cross(&angular_momentum)).component_div(&params.inertia);
     let attitude_rate =
         0.5 * state.attitude.quaternion() * Quaternion::from_parts(0.0, state.angular_velocity);
     let motor_angular_acceleration = Vector4::new(

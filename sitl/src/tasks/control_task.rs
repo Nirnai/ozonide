@@ -2,7 +2,7 @@ use nalgebra::Vector3;
 
 use ozonide_core::config::VehicleConfig;
 use ozonide_core::control::indi::{
-    AngularVelocityController, CascadedController, ControlAllocator,
+    AngularVelocityController, CascadedController, IncrementalInversion,
     InputSignalConditioning, InverseActuatorModel, VelocityController,
 };
 use ozonide_core::msgs::VelocitySetpoint;
@@ -45,7 +45,7 @@ pub fn make_controller() -> CascadedController {
     let v = cfg.battery_nominal_voltage;
 
     let conditioning = InputSignalConditioning::new(F_CUT, FS, cfg.motor_time_constant);
-    let allocator = ControlAllocator::new(cfg.effectiveness_matrix(), u_min, u_max)
+    let inversion = IncrementalInversion::<4>::new_uniform(cfg.effectiveness_matrix(), u_min, u_max)
         .expect("VehicleConfig::default yields a valid effectiveness matrix");
     let output_map = core::array::from_fn(|_| {
         InverseActuatorModel::new(c0, c1, v, v, cfg.idle_throttle)
@@ -54,7 +54,7 @@ pub fn make_controller() -> CascadedController {
 
     let rate = AngularVelocityController::new(
         conditioning,
-        allocator,
+        inversion,
         output_map,
         Vector3::from(RATE_GAIN),
     );
