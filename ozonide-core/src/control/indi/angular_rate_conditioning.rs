@@ -1,7 +1,7 @@
 use nalgebra::{Vector3, Vector4};
 
 use crate::filter::{Filter, FilterFamily, lowpass};
-use crate::msgs::{VehicleState, STANDARD_GRAVITY};
+use crate::msgs::VehicleState;
 
 /// One sample's conditioned outputs, mutually phase-aligned.
 pub struct ConditionedSignals {
@@ -9,8 +9,11 @@ pub struct ConditionedSignals {
     pub angular_rate_filtered: Vector3<f32>,
     /// Filtered angular acceleration estimate α_f (rad/s²).
     pub angular_acceleration: Vector3<f32>,
-    /// Filtered specific thrust in g's: body-z specific force / g.
-    /// Body frame is FLU, so at hover `specific_force[2] ≈ +g` → 1.0 here.
+    /// Modeled specific thrust in g's, from RPM: `thrust_coeff · u₀` (the thrust
+    /// row of the effectiveness matrix applied to the filtered actuator state).
+    /// A feed-forward of the achieved collective — NOT an accelerometer reading —
+    /// so the rate loop tracks thrust but leaves vertical disturbance rejection
+    /// to the outer loop (avoids double-counting). Hover ≈ 1.0.
     pub specific_thrust: f32,
     /// Filtered actuator state u₀_f (Ω², rad²/s²).
     pub actuator_state: Vector4<f32>,
@@ -45,16 +48,20 @@ impl ActuatorLagModel {
 }
 
 /// INDI signal conditioning: produces the synchronized (α_f, thrust_f, u₀_f)
-/// trio for the increment law.
+/// trio for the increment law. Runs on **gyro + RPM only** — the accelerometer
+/// is not used here. The thrust channel is modeled from the actuator state, so
+/// the rate loop only *tracks* collective; vertical disturbance rejection is the
+/// outer loop's job, not this one.
 ///
 /// # Synchronization invariant
 ///
-/// All three signal paths pass through low-pass filters with **identical
-/// coefficients**, so they share one group delay. The increment law subtracts
-/// and adds these signals against each other; a delay mismatch between them
-/// injects phase error into the loop's most sensitive arithmetic. This struct
-/// is the single owner of that invariant — do not filter any of these signals
-/// anywhere else, and do not tune one path's cutoff independently of the others.
+/// The gyro and actuator paths pass through low-pass filters with **identical
+/// coefficients**, so they share one group delay. The thrust channel is derived
+/// from the already-filtered actuator state, so it inherits that delay for free.
+/// The increment law subtracts these signals against each other; a delay mismatch
+/// injects phase error into the loop's most sensitive arithmetic. This struct is
+/// the single owner of that invariant — do not filter these signals anywhere
+/// else, and do not tune one path's cutoff independently of the others.
 ///
 /// # Angular acceleration estimation
 ///
@@ -67,18 +74,20 @@ impl ActuatorLagModel {
 ///
 /// `f_cut` is a control-design parameter (trades α noise for loop phase margin)
 /// and must be tuned jointly with the rate-loop gains. Typical range: 10–30 Hz.
-pub struct InputSignalConditioning {
+pub struct AngularRateConditioning {
     gyro_low_pass_filter: [Filter; 3],
     angular_rate_filtered_prev: Vector3<f32>,
-    thrust_low_pass_filter: Filter,
     actuator_low_pass_filter: [Filter; 4],
+    /// Thrust row of the effectiveness matrix (g's per Ω², per motor). Maps the
+    /// filtered actuator state to the modeled specific thrust.
+    thrust_coeff: Vector4<f32>,
     lag_model: ActuatorLagModel,
     dt: f32,
     primed: bool,
 }
 
-impl InputSignalConditioning {
-    pub fn new(f_cut: f32, sample_rate: f32, lag_tau: f32) -> Self {
+impl AngularRateConditioning {
+    pub fn new(f_cut: f32, sample_rate: f32, lag_tau: f32, thrust_coeff: Vector4<f32>) -> Self {
         // Bessel, not Butterworth: flat group delay matters more here than
         // magnitude flatness — the delay sits directly in the rate loop, and
         // Bessel keeps it constant across the maneuver spectrum (see notes).
@@ -86,8 +95,8 @@ impl InputSignalConditioning {
         Self {
             gyro_low_pass_filter: core::array::from_fn(|_| make_low_pass()),
             angular_rate_filtered_prev: Vector3::zeros(),
-            thrust_low_pass_filter: make_low_pass(),
             actuator_low_pass_filter: core::array::from_fn(|_| make_low_pass()),
+            thrust_coeff,
             lag_model: ActuatorLagModel::new(lag_tau),
             dt: 1.0 / sample_rate,
             primed: false,
@@ -112,12 +121,7 @@ impl InputSignalConditioning {
         };
         self.angular_rate_filtered_prev = angular_rate_filtered;
 
-        // --- Thrust path: same single filter. ---
-        let specific_thrust = self
-            .thrust_low_pass_filter
-            .process(state.specific_force[2] / STANDARD_GRAVITY);
-
-        // --- Actuator path: same single filter. ---
+        // --- Actuator path: filter Ω². ---
         let (omega_motors, actuator_measured) = match state.motor_speed() {
             Some(m) => (m, true),
             None => (self.lag_model.omega(), false),
@@ -125,6 +129,13 @@ impl InputSignalConditioning {
         let actuator_state = Vector4::from_fn(|i, _| {
             self.actuator_low_pass_filter[i].process(omega_motors[i] * omega_motors[i])
         });
+
+        // --- Thrust path: modeled from the actuator state, NOT the accelerometer. ---
+        // specific_thrust = (G·u₀)[3] = thrust_coeff · u₀, so the thrust channel is
+        // a feed-forward tracker of the achieved collective. Vertical disturbance
+        // rejection belongs to the outer loop — feeding the accelerometer here too
+        // would double-count it. Inherits the actuator path's filter delay for free.
+        let specific_thrust = self.thrust_coeff.dot(&actuator_state);
 
         ConditionedSignals {
             angular_rate_filtered,
@@ -153,14 +164,12 @@ impl InputSignalConditioning {
     /// 1 kHz settles in fewer than 300 samples; 500 gives a comfortable margin.
     pub fn reset(&mut self, state: &VehicleState) {
         let av = &state.angular_velocity;
-        let thrust_dc = state.specific_force[2] / STANDARD_GRAVITY;
         let motors = state.motor_speed().unwrap_or_else(Vector4::zeros);
 
         for _ in 0..500 {
             for i in 0..3 {
                 self.gyro_low_pass_filter[i].process(av[i]);
             }
-            self.thrust_low_pass_filter.process(thrust_dc);
             for i in 0..4 {
                 self.actuator_low_pass_filter[i].process(motors[i] * motors[i]);
             }
@@ -202,12 +211,19 @@ mod tests {
     const FS: f32 = 1000.0;
     const F_CUT: f32 = 20.0;
     const LAG_TAU: f32 = 0.05;
+    const HOVER_OMEGA: f32 = 500.0;
+    // 4 motors at HOVER_OMEGA model 1 g of specific thrust: 4·coeff·Ω² = 1.
+    const THRUST_COEFF: f32 = 1.0 / (4.0 * HOVER_OMEGA * HOVER_OMEGA);
+
+    fn make_conditioning() -> AngularRateConditioning {
+        AngularRateConditioning::new(F_CUT, FS, LAG_TAU, Vector4::repeat(THRUST_COEFF))
+    }
 
     /// After many steps with constant angular velocity, α must converge to zero.
     #[test]
     fn constant_rate_gives_zero_acceleration() {
-        let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);
-        let state = make_state([0.5, -0.3, 0.1], [0.0, 0.0, STANDARD_GRAVITY]);
+        let mut cond = make_conditioning();
+        let state = make_state([0.5, -0.3, 0.1], [0.0; 3]);
 
         let mut out = cond.step(&state);
         for _ in 0..2000 {
@@ -223,16 +239,16 @@ mod tests {
     /// A step in roll rate must produce a measurable α transient.
     #[test]
     fn rate_step_produces_nonzero_acceleration() {
-        let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);
+        let mut cond = make_conditioning();
 
         // Settle at zero rate.
-        let zero = make_state([0.0; 3], [0.0, 0.0, STANDARD_GRAVITY]);
+        let zero = make_state([0.0; 3], [0.0; 3]);
         for _ in 0..500 {
             cond.step(&zero);
         }
 
         // Step to 1 rad/s roll and capture the transient peak.
-        let step = make_state([1.0, 0.0, 0.0], [0.0, 0.0, STANDARD_GRAVITY]);
+        let step = make_state([1.0, 0.0, 0.0], [0.0; 3]);
         let mut peak_alpha = 0.0_f32;
         for _ in 0..200 {
             let out = cond.step(&step);
@@ -246,11 +262,11 @@ mod tests {
         );
     }
 
-    /// Hover specific force (FLU, z up: +g) → specific_thrust ≈ 1.0.
+    /// Specific thrust is modeled from RPM (not the accelerometer): hover Ω² → 1 g.
     #[test]
-    fn hover_specific_force_maps_to_unity_thrust() {
-        let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);
-        let state = make_state([0.0; 3], [0.0, 0.0, STANDARD_GRAVITY]);
+    fn hover_rpm_maps_to_unity_thrust() {
+        let mut cond = make_conditioning();
+        let state = make_state_with_motors([0.0; 3], [0.0; 3], [HOVER_OMEGA; 4]);
 
         let mut out = cond.step(&state);
         for _ in 0..2000 {
@@ -267,11 +283,11 @@ mod tests {
     /// When MOTOR_SPEED is valid, actuator_measured must be true and u₀ ≈ Ω².
     #[test]
     fn actuator_state_uses_measured_rpm_when_available() {
-        let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);
+        let mut cond = make_conditioning();
         let omega_m = 500.0_f32;
         let state = make_state_with_motors(
             [0.0; 3],
-            [0.0, 0.0, STANDARD_GRAVITY],
+            [0.0; 3],
             [omega_m; 4],
         );
 
@@ -294,8 +310,8 @@ mod tests {
     /// When MOTOR_SPEED is not valid, actuator_measured must be false (lag model).
     #[test]
     fn actuator_falls_back_to_lag_model_when_no_rpm() {
-        let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);
-        let state = make_state([0.0; 3], [0.0, 0.0, STANDARD_GRAVITY]);
+        let mut cond = make_conditioning();
+        let state = make_state([0.0; 3], [0.0; 3]);
 
         // Feed a command so the lag model has something to track.
         let u_cmd = Vector4::from_element(500.0_f32.powi(2));
@@ -321,8 +337,8 @@ mod tests {
     /// After reset, the first step must not spike: α should start close to zero.
     #[test]
     fn reset_prevents_startup_spike() {
-        let mut cond = InputSignalConditioning::new(F_CUT, FS, LAG_TAU);
-        let state = make_state([0.5, -0.3, 0.1], [0.0, 0.0, STANDARD_GRAVITY]);
+        let mut cond = make_conditioning();
+        let state = make_state([0.5, -0.3, 0.1], [0.0; 3]);
 
         cond.reset(&state);
         let out = cond.step(&state);

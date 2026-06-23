@@ -16,7 +16,7 @@ pub struct ConditionedForce {
 }
 
 /// Outer-loop signal conditioning: the specific-force analogue of
-/// [`InputSignalConditioning`](super::input_signal_conditioning::InputSignalConditioning),
+/// [`AngularRateConditioning`](super::angular_rate_conditioning::AngularRateConditioning),
 /// producing the `(ν̂, u₀)` pair the outer INDI law differences.
 ///
 /// The disturbance rejection hinges on `ν̂` and `u₀` coming from **different

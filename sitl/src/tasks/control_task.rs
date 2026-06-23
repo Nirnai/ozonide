@@ -2,7 +2,7 @@ use nalgebra::{Matrix3, Vector3};
 
 use ozonide_core::config::VehicleConfig;
 use ozonide_core::control::indi::{
-    AngularRateController, CascadedController, IncrementalInversion, InputSignalConditioning,
+    AngularRateController, CascadedController, IncrementalInversion, AngularRateConditioning,
     InverseActuatorModel, SpecificForceConditioning, ThrustVectorDecomposition, VelocityController,
 };
 use ozonide_core::msgs::VelocitySetpoint;
@@ -50,8 +50,13 @@ pub fn make_controller() -> CascadedController {
     let (u_min, u_max) = cfg.actuator_limits();
     let (c0, c1) = cfg.motor_model_coefficients();
     let v = cfg.battery_nominal_voltage;
+    // Thrust row of the effectiveness matrix (g's per Ω²). Used by both loops to
+    // model collective thrust from RPM. In the rate loop it makes the thrust
+    // channel a feed-forward (no accelerometer); in the outer loop it builds u₀.
+    let thrust_coeff = cfg.effectiveness_matrix().row(3).transpose();
 
-    let conditioning = InputSignalConditioning::new(F_CUT, FS, cfg.motor_time_constant);
+    let conditioning =
+        AngularRateConditioning::new(F_CUT, FS, cfg.motor_time_constant, thrust_coeff);
     let inversion = IncrementalInversion::<4>::new_uniform(cfg.effectiveness_matrix(), u_min, u_max)
         .expect("VehicleConfig::default yields a valid effectiveness matrix");
     let output_map = core::array::from_fn(|_| {
@@ -68,9 +73,8 @@ pub fn make_controller() -> CascadedController {
 
     // Outer INDI force loop: identity effectiveness (specific-force units), so
     // the INDI clamp is disabled (±∞) and saturation lives in the decomposition.
-    // u₀ comes from the RPM thrust model — the thrust row (g's per Ω²) of the
-    // effectiveness matrix, so f̂ − u₀ isolates the specific-force disturbance.
-    let thrust_coeff = cfg.effectiveness_matrix().row(3).transpose();
+    // u₀ comes from the same RPM thrust model, so f̂ − u₀ isolates the
+    // specific-force disturbance (the outer loop owns all force rejection now).
     let force_conditioning = SpecificForceConditioning::new(F_CUT_VELOCITY, FS, thrust_coeff);
     let force_inversion = IncrementalInversion::<3>::new_uniform(
         Matrix3::identity(),

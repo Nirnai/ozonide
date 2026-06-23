@@ -4,11 +4,11 @@ use crate::msgs::{ActuatorCommand, AngularAccelerationSetpoint, AngularRateSetpo
 use crate::traits::Controller;
 
 use super::incremental_inversion::IncrementalInversion;
-use super::input_signal_conditioning::InputSignalConditioning;
+use super::angular_rate_conditioning::AngularRateConditioning;
 use super::inverse_actuator_model::InverseActuatorModel;
 
 pub struct AngularRateController {
-    conditioning: InputSignalConditioning,
+    conditioning: AngularRateConditioning,
     /// INDI law over the 4-D virtual control [αx, αy, αz, specific thrust].
     inversion: IncrementalInversion<4>,
     /// One model per motor — each is identified independently on the bench.
@@ -20,7 +20,7 @@ pub struct AngularRateController {
 
 impl AngularRateController {
     pub fn new(
-        conditioning: InputSignalConditioning,
+        conditioning: AngularRateConditioning,
         inversion: IncrementalInversion<4>,
         output_map: [InverseActuatorModel; 4],
         rate_gain: Vector3<f32>,
