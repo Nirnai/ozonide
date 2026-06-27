@@ -143,6 +143,70 @@ static mut IMU_CALIBRATION: CalibData = CalibData::default();
 | **TIM16** | General-purpose | 16 | 1 + complementary | APB2 | Free |
 | **TIM17** | General-purpose | 16 | 1 + complementary | APB2 | Free |
 
+## ESC / Motor Outputs
+
+**ESC:** Aikon AK32 35A 4-in-1 (BLHeli_32), DShot signalling.
+Connector order (FC side): `GND GND BAT +5(BEC) M4 M3 M2 M1 CURRENT TELEMETRY`.
+
+All four motor outputs are on **TIM1**, all on **port E**, so the four channels
+can be driven by a single TIM1_UP DMA burst (CCR1–4) rather than four DMA streams.
+
+```
+AK32 pad   →   STM32H743VIT6      TIM1 channel
+──────────────────────────────────────────────
+M1         →   PE9                TIM1_CH1
+M2         →   PE11               TIM1_CH2
+M3         →   PE13               TIM1_CH3
+M4         →   PE14               TIM1_CH4
+GND        →   GND                shared reference (mandatory)
+```
+
+Deferred / optional connector pads:
+
+```
++5 (BEC)   →   board 5V rail (optional; USB-power the MCU for first bring-up)
+CURRENT    →   PC1 / ADC1_INP11   (whole-board current, conditioned 0–3.3V)
+BAT        →   divider → PC0 / ADC1_INP10  (pack voltage; sag compensation)
+TELEMETRY  →   PE7 / UART7_RX (KISS one-wire serial telemetry, 115200 8N1)
+```
+
+Power sensing (both on ADC1, free to sample together). **Sized for 3–4S
+(16.8V max).** Vref = 3.3V.
+
+**VBAT (PC0) — resistor divider.** BAT is *raw pack voltage*; never direct to
+ADC. Divider **R1 = 4.7k (top) / R2 = 1k (bottom)** → ratio 5.7:1, so 4S full
+(16.8V) → **2.95V** at the pin (≈11% headroom under Vref). The 100nF cap lowers
+source impedance for the SAR ADC and filters ripple. Firmware scale = 5.7.
+
+```
+  BAT ──[ R1 4.7k ]──┬───────────── PC0 / ADC1_INP10
+                     │
+                  [ R2 1k ]      [ C1 100nF ]
+                     │               │
+                    GND ────────────GND
+```
+
+**CURRENT (PC1) — RC low-pass.** Conditioned analog from the AK32 sensor;
+ADC-safe but electrically noisy. Series 1k + 100nF (fc ≈ 1.6 kHz) tames ESC
+switching noise. Calibrate mV/A against a bench load or the serial-telemetry
+current; confirm full-scale current stays < 3.3V.
+
+```
+  CURRENT ──[ R3 1k ]──┬───────────── PC1 / ADC1_INP11
+                       │
+                   [ C2 100nF ]
+                       │
+                      GND
+```
+
+BOM: 1× 4.7k, 1× 1k (divider) · 1× 1k (current series) · 2× 100nF, all 0805/
+through-hole, plus the 100nF on VBAT = 3× 100nF total.
+
+TELEMETRY is wired during bidir-DShot bring-up as an **independent eRPM
+cross-check**: the serial 10-byte frame (per-ESC, request-based, round-robin on
+the shared 4-in-1 wire) is decoded in parallel with the bidir GCR eRPM to
+validate the decoder, then retired behind a debug flag. RX-only is sufficient.
+
 ## IMU
 
 ```
